@@ -28,16 +28,23 @@
 
 ## 安装状态与回退
 
-本次迁移只完成源码、构建与测试，没有安装新版本，也没有修改用户配置、快捷键或启动项。本机当前仍运行 `0.7.0-zh-cn-tab-coordinate-20261027-091741`。
+2026-11-02 已在本机安装并替换为 v0.7.2 中文版：
 
-如需回退现有安装，使用对应备份目录中的回滚脚本：
+- 版本目录：`~/Library/Application Support/Rift/Versions/0.7.2-zh-cn-20261102-000648`
+- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.7.2+b673316a5e17`
+- 升级更换了可执行文件，macOS 要求重新授予辅助功能权限。旧版本条目可在“系统设置 > 隐私与安全性 > 辅助功能”中手动选中并点 `-` 移除；保留指向上述 0.7.2 目录的最新条目。不要执行 `tccutil reset Accessibility`，它会同时撤销当前可用授权
+- 用户配置、快捷键、应用规则与 LaunchAgent 未改
+
+回退到安装前的 0.7.0 中文版：
 
 ```sh
-python3 "$HOME/Library/Application Support/Rift/Backups/20261027-091741-tab-coordinate/rollback.py" --check
-python3 "$HOME/Library/Application Support/Rift/Backups/20261027-091741-tab-coordinate/rollback.py"
+python3 "$HOME/Library/Application Support/Rift/Backups/20261102-005502-v072-authorized/rollback.py" --check
+python3 "$HOME/Library/Application Support/Rift/Backups/20261102-005502-v072-authorized/rollback.py"
 ```
 
-首次中文安装的备份与回滚脚本位于 `~/Library/Application Support/Rift/Backups/20261019-192206/`。两个回滚脚本均保留当前配置和快捷键。
+更早的备份保留在 `~/Library/Application Support/Rift/Backups/`：
+`20261027-091741-tab-coordinate`（0.7.0 页签修复版）、`20261019-192206`（首次中文版）以及
+`20261102-000648-v072-install`、`20261102-001409-v072-inplace`（两次被辅助功能授权拦截的安装尝试）。
 
 ## 构建与验证
 
