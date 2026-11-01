@@ -7,7 +7,7 @@ build = "build.rs"
 [workspace]
 members = [".", "crates/rift-client", "crates/rift-protocol", "crates/rift-config-derive"]
 resolver = "3"
-exclude = ["cgs"]
+exclude = ["cgs", "vendor/cgs"]
 
 [[bin]]
 name = "rift"
@@ -206,3 +206,7 @@ test_bin = "0.5.0"
 [[test]]
 name = "settings_native"
 harness = false
+
+[patch.crates-io]
+# 固定已有控件库的中文文案，保持版本与依赖不变。
+cgs = { path = "vendor/cgs" }

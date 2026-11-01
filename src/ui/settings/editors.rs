@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use cgs::app::Application;
 use cgs::collection::{EditableList, SettingsList};
 use cgs::controls::{AddRemoveControl, Button, IconButton, NumberField, Popup, SheetActions};
@@ -74,7 +75,7 @@ fn record_editor(
             Box::new(move |source| {
                 if *source != *base {
                     return Err(
-                        "Settings changed elsewhere. Cancel and reopen this editor to try again."
+                        "设置已在其他位置更改。请取消并重新打开此编辑器后重试。"
                             .into(),
                     );
                 }
@@ -141,14 +142,14 @@ pub(super) fn workspaces(ui: Ui, model: &Rc<Model>) -> Page {
     );
     let separate = f.schema_metadata(separate, mode, |s| &s.virtual_workspaces);
     let mut section = f.schema_rows(
-        Section::new(&ui, "Workspace behavior").row(separate),
+        Section::new(&ui, "工作区行为").row(separate),
         "",
         |s| &s.virtual_workspaces,
         |s| &mut s.virtual_workspaces,
     );
     let defaults = workspace_popup(
         &mut f,
-        "Default workspace",
+        "默认工作区",
         false,
         |s| Some(WorkspaceSelector::Index(s.virtual_workspaces.default_workspace)),
         |s, v| {
@@ -184,15 +185,15 @@ pub(super) fn workspaces(ui: Ui, model: &Rc<Model>) -> Page {
             &ui,
             |item| item.1.clone(),
             |(i, name, layout): &WorkspaceEntry| {
-                let layout = layout.map(super::pages::layout_title).unwrap_or("Default layout");
-                if name == &format!("Workspace {}", i + 1) {
+                let layout = layout.map(super::pages::layout_title).unwrap_or("默认布局");
+                if name == &format!("工作区 {}", i + 1) {
                     layout.to_string()
                 } else {
-                    format!("Workspace {} · {}", i + 1, layout)
+                    format!("工作区 {} · {}", i + 1, layout)
                 }
             },
         )
-        .empty_message("No workspaces")
+        .empty_message("没有工作区")
         .full_length()
         .symbol("rectangle.on.rectangle")
         .on_open(move |index| edit_workspace(index)),
@@ -211,7 +212,7 @@ pub(super) fn workspaces(ui: Ui, model: &Rc<Model>) -> Page {
                     if index >= MAX_WORKSPACES {
                         if let Some(error) = error.upgrade() {
                             error.set_validation(&Validation::Error(format!(
-                                "Use at most {MAX_WORKSPACES} workspaces."
+                                "最多可使用 {MAX_WORKSPACES} 个工作区。"
                             )));
                         }
                     } else {
@@ -226,10 +227,10 @@ pub(super) fn workspaces(ui: Ui, model: &Rc<Model>) -> Page {
                         Box::new(move |s| {
                             let i = index;
                             if i + 1 != s.virtual_workspaces.default_workspace_count {
-                                return Err("Only the last workspace can be removed.".into());
+                                return Err("只能移除最后一个工作区。".into());
                             }
                             if i == 0 {
-                                return Err("Keep at least one workspace.".into());
+                                return Err("至少保留一个工作区。".into());
                             }
                             s.virtual_workspaces.resize(i);
                             Ok(())
@@ -279,7 +280,7 @@ pub(super) fn workspaces(ui: Ui, model: &Rc<Model>) -> Page {
     f.finish(
         SettingsPage::new(&ui, "")
             .section(section)
-            .section(Section::new(&ui, "Workspaces").content(table).footer(message))
+            .section(Section::new(&ui, "工作区").content(table).footer(message))
             .bottom_bar(HStack::new(&ui).push(actions).spacer(&ui)),
     )
 }
@@ -287,7 +288,7 @@ pub(super) fn workspaces(ui: Ui, model: &Rc<Model>) -> Page {
 pub(super) fn workspace_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
     let mut f = FormBuilder::new(ui, model);
     let name = f.text(
-        "Name",
+        "名称",
         move |s| s.virtual_workspaces.workspace_names.get(i).cloned().unwrap_or_default(),
         move |s, v| {
             let old = s.virtual_workspaces.workspace_names.get(i).cloned();
@@ -315,7 +316,7 @@ pub(super) fn workspace_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
     );
     let values = layouts().to_vec();
     let layout = f.inherited_popup(
-        "Layout",
+        "布局",
         values,
         move |s| workspace_layout(s, i),
         |s| s.settings.layout.mode,
@@ -447,29 +448,29 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
                             let id = &value[..8];
                             (
                                 value.clone(),
-                                "Unknown Display".into(),
-                                format!("Not connected · {id}"),
+                                "未知显示器".into(),
+                                format!("未连接 · {id}"),
                             )
                         } else {
-                            (value.clone(), value.clone(), "Not connected".into())
+                            (value.clone(), value.clone(), "未连接".into())
                         }
                     })
                     .collect(),
             );
             self.menu.clear();
-            self.menu.add_section_header("Connected Displays");
+            self.menu.add_section_header("已连接显示器");
             for display in displays.iter() {
                 let title = display_name(&displays, &display.display_uuid).unwrap_or_default();
                 self.add_item(&ui, i, &title, display.display_uuid.clone(), saved);
             }
-            self.menu.add_section_header("Automatic");
+            self.menu.add_section_header("自动");
             for value in ["builtin", "left", "right", "top", "bottom"] {
                 let title = display_preference_title(value).unwrap_or_default();
                 self.add_item(&ui, i, title, value.into(), saved);
             }
             self.menu.add_separator();
             let owner = self.this.clone();
-            self.menu.add(MenuItem::new(&ui, "Other Display…").on_click(move || {
+            self.menu.add(MenuItem::new(&ui, "其他显示器…").on_click(move || {
                 if let Some(state) = owner.upgrade() {
                     state.enter(None);
                 }
@@ -490,9 +491,9 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
                 edit.set_enabled(selected);
             }
             self.status.set_text(if active {
-                "Uses the first connected display in the list. Drag to reorder."
+                "使用列表中的第一台已连接显示器。可拖动调整顺序。"
             } else {
-                "To use display preferences, turn off “Displays have separate workspaces.”"
+                "若要使用显示器偏好，请关闭“各显示器使用独立工作区”。"
             });
         }
     }
@@ -500,13 +501,13 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
     let state = Rc::new_cyclic(|weak: &Weak<State>| {
         let owner = weak.clone();
         let field = Rc::new(
-            TextField::new(&ui).placeholder("Display UUID or name").on_commit(move |value| {
+            TextField::new(&ui).placeholder("显示器 UUID 或名称").on_commit(move |value| {
                 if let Some(state) = owner.upgrade() {
                     state.submit(i, &value);
                 }
             }),
         );
-        field.accessibility_label("Display UUID or name");
+        field.accessibility_label("显示器 UUID 或名称");
         field.set_hidden(true);
         let menu = Menu::new(&ui);
         menu.ns_menu().setAutoenablesItems(false);
@@ -528,7 +529,7 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
     let owner = Rc::downgrade(&state);
     let list = Rc::new(
         SettingsList::<Entry>::new(&ui, |entry| entry.1.clone(), |entry| entry.2.clone())
-            .empty_message("Any display")
+            .empty_message("任意显示器")
             .full_length()
             .symbol("display")
             .reorderable(true)
@@ -545,7 +546,7 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
     );
     list.ns_table_view()
         .setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-            "Display Preferences",
+            "显示器偏好",
         )));
     _ = state.list.set(list.clone());
     let add_owner = Rc::downgrade(&state);
@@ -575,14 +576,14 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
     );
     if let Some(add) = controls.ns_view().subviews().firstObject() {
         add.setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-            "Add Display Preference",
+            "添加显示器偏好",
         )));
         // The button retains the menu; this also exposes it to secondary clicks.
         unsafe { add.setMenu(Some(state.menu.ns_menu())) };
     }
     let owner = Rc::downgrade(&state);
     let edit = Rc::new(
-        IconButton::new(&ui, "pencil", "Edit Display Preference").on_click(move || {
+        IconButton::new(&ui, "pencil", "编辑显示器偏好").on_click(move || {
             if let Some(state) = owner.upgrade()
                 && let Some(value) = state.selected()
             {
@@ -617,17 +618,17 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
         .push(state.field.clone())
         .push(objc2::Message::retain(state.status.ns_view()));
     let message = state.message.clone();
-    Section::new(&ui, "Display Preferences")
+    Section::new(&ui, "显示器偏好")
         .content(VStack::new(&ui).spacing(4.0).push(control.keep(state)).push(message))
 }
 
 fn display_preference_title(value: &str) -> Option<&'static str> {
     Some(match value {
-        "builtin" => "Built-in Display",
-        "left" => "Leftmost Display",
-        "right" => "Rightmost Display",
-        "top" => "Topmost Display",
-        "bottom" => "Bottommost Display",
+        "builtin" => "内置显示器",
+        "left" => "最左侧显示器",
+        "right" => "最右侧显示器",
+        "top" => "最上方显示器",
+        "bottom" => "最下方显示器",
         _ => return None,
     })
 }
@@ -741,7 +742,7 @@ fn workspace_popup(
         if let Some(input) = weak.upgrade() {
             let mut names = Vec::new();
             if optional {
-                names.push("Current workspace".into());
+                names.push("当前工作区".into());
             }
             names.extend(
                 (0..s.virtual_workspaces.default_workspace_count)
@@ -781,7 +782,7 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
                 .app_rules
                 .get(index)
                 .map(|rule| rule_name(&model, rule))
-                .unwrap_or_else(|| "App Rule".into());
+                .unwrap_or_else(|| "应用规则".into());
             record_editor(ui, &model, &title, |draft| rule_detail(ui, draft, index), true);
         }
     });
@@ -807,7 +808,7 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
             rule_behavior,
         )
         .full_length()
-        .empty_message("No matching rules")
+        .empty_message("没有匹配的规则")
         .symbol("app")
         .images(application_icons(|rule: &AppWorkspaceRule| rule.app_id.clone()))
         .on_open(move |index| action(index))
@@ -841,7 +842,7 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
         model.env.send(Action::RefreshRuntime, Box::new(|_| {}));
     }
     let edit_action = edit_rule.clone();
-    let edit = IconButton::new(&ui, "pencil", "Edit Rule…").on_click(move || {
+    let edit = IconButton::new(&ui, "pencil", "编辑规则…").on_click(move || {
         if let Some(index) = weak_table.upgrade().and_then(|table| table.selection()) {
             edit_action(index);
         }
@@ -879,12 +880,12 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
     let weak_table = Rc::downgrade(&table);
     table.set_context_menu(
         Menu::new(&ui)
-            .item(MenuItem::new(&ui, "Edit Rule…").on_click(move || {
+            .item(MenuItem::new(&ui, "编辑规则…").on_click(move || {
                 if let Some(index) = weak_table.upgrade().and_then(|table| table.selection()) {
                     edit_rule(index);
                 }
             }))
-            .item(MenuItem::new(&ui, "Remove").on_click(move || remove_rule())),
+            .item(MenuItem::new(&ui, "移除").on_click(move || remove_rule())),
     );
     controls.set_remove_enabled(false);
     edit.set_enabled(false);
@@ -950,14 +951,14 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
     let update = refresh.clone();
     f.sync.push(Box::new(move |_| update()));
     let update = refresh.clone();
-    let search = SearchField::new(&ui).placeholder("Search rules").on_change(move |value| {
+    let search = SearchField::new(&ui).placeholder("搜索规则").on_change(move |value| {
         *query.borrow_mut() = value.to_lowercase();
         update();
     });
     let tint = Rc::new(RefCell::new(Weak::<HeaderControls>::new()));
     let menu = Menu::new(&ui);
     let mut filter_items = Vec::new();
-    let mut choices = vec!["All workspaces".to_owned()];
+    let mut choices = vec!["所有工作区".to_owned()];
     choices.extend(
         (0..model.source.borrow().virtual_workspaces.default_workspace_count)
             .map(|index| workspace_name(&model.source.borrow(), index)),
@@ -983,7 +984,7 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
     });
     let header = Rc::new(HeaderControls::new(
         &ui,
-        "Filter rules",
+        "筛选规则",
         "line.3.horizontal.decrease",
         menu,
         search,
@@ -992,7 +993,7 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
     let mut page = f.finish(
         SettingsPage::new(&ui, "")
             .subtitle(
-                "Choose which windows Rift manages and where they open. Drag rules to change their order.",
+                "选择 Rift 管理哪些窗口及其打开位置。拖动规则可调整顺序。",
             )
             .section(table)
             .bottom_bar(HStack::new(&ui).push(controls).spacer(&ui).push(edit))
@@ -1004,22 +1005,22 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
 
 fn rule_behavior(rule: &AppWorkspaceRule) -> String {
     let mut parts = vec![if rule.manage == Some(false) {
-        "Ignore".into()
+        "忽略".into()
     } else if rule.floating {
-        "Floating".into()
+        "浮动".into()
     } else if rule.manage == Some(true) {
-        "Manage".into()
+        "管理".into()
     } else {
-        "Automatic".into()
+        "自动".into()
     }];
     if let Some(workspace) = &rule.workspace {
         parts.push(match workspace {
-            WorkspaceSelector::Index(index) => format!("Workspace {}", index + 1),
+            WorkspaceSelector::Index(index) => format!("工作区 {}", index + 1),
             WorkspaceSelector::Name(name) => name.clone(),
         });
     }
     if rule.focus {
-        parts.push("Focus".into());
+        parts.push("聚焦".into());
     }
     parts.join(" · ")
 }
@@ -1041,7 +1042,7 @@ fn application_picker(
             |app: &Rc<Choice>| app.name.clone(),
             |app| app.target.0.clone().unwrap_or_default(),
         )
-        .empty_message("No matching applications")
+        .empty_message("没有匹配的应用程序")
         .fit_content(height)
         .symbol("app")
         .images(application_icons(|app: &Rc<Choice>| app.target.0.clone()))
@@ -1056,7 +1057,7 @@ fn application_picker(
     let weak_list = Rc::downgrade(&list);
     let search = Rc::new(
         SearchField::new(&ui)
-            .placeholder("Search by app name or bundle identifier")
+            .placeholder("按应用程序名称或包标识符搜索")
             .on_change(move |query| {
                 if let (Some(env), Some(list)) = (weak_env.upgrade(), weak_list.upgrade()) {
                     list.set_selected(None);
@@ -1119,7 +1120,7 @@ fn app_picker(
     content.width(360.0);
     let popover = Rc::new(Popover::new(&ui, content));
     *dismissal.borrow_mut() = Rc::downgrade(&popover);
-    let button = Button::new(&ui, "Change…");
+    let button = Button::new(&ui, "更改…");
     let anchor = WeakView::new(&button);
     let button = button.on_click(move || {
         if let Some(view) = anchor.load() {
@@ -1154,11 +1155,11 @@ fn add_rule(ui: Ui, model: &Rc<Model>, edit_rule: Rc<dyn Fn(usize)>) {
     let app_name = Rc::new(RefCell::new(None::<String>));
     let selected_name = app_name.clone();
     // Optional matchers let a second rule for the same app coexist with an existing bare one.
-    let title_input = Rc::new(TextField::new(&ui).placeholder("Window title contains"));
-    let role_input = Rc::new(TextField::new(&ui).placeholder("Accessibility role, e.g. AXWindow"));
+    let title_input = Rc::new(TextField::new(&ui).placeholder("窗口标题包含"));
+    let role_input = Rc::new(TextField::new(&ui).placeholder("无障碍角色，例如 AXWindow"));
     let matchers = Rc::new(Disclosure::new(
         &ui,
-        "Only match specific windows",
+        "仅匹配特定窗口",
         VStack::new(&ui).spacing(8.0).push(title_input.clone()).push(role_input.clone()),
     ));
     let weak_matchers = Rc::downgrade(&matchers);
@@ -1166,7 +1167,7 @@ fn add_rule(ui: Ui, model: &Rc<Model>, edit_rule: Rc<dyn Fn(usize)>) {
     let weak_role = Rc::downgrade(&role_input);
     let weak_model = Rc::downgrade(model);
     let weak_input = Rc::downgrade(&input);
-    cancel.set_primary_title("Add Rule");
+    cancel.set_primary_title("添加规则");
     cancel.set_on_done(move || {
         let Some(input) = weak_input.upgrade() else {
             return;
@@ -1188,7 +1189,7 @@ fn add_rule(ui: Ui, model: &Rc<Model>, edit_rule: Rc<dyn Fn(usize)>) {
         if value.trim().is_empty() && name.is_none() {
             if let Some(message) = input_error.upgrade() {
                 message.set_validation(&Validation::Error(
-                    "Choose an app or enter a bundle identifier.".into(),
+                    "请选择应用程序或输入包标识符。".into(),
                 ));
             }
             if let Some(model) = weak_model.upgrade()
@@ -1273,19 +1274,19 @@ fn add_rule(ui: Ui, model: &Rc<Model>, edit_rule: Rc<dyn Fn(usize)>) {
             bottom: 20.0,
             right: 20.0,
         })
-        .push(SectionTitle::new(&ui, "Add App Rule"))
+        .push(SectionTitle::new(&ui, "添加应用规则"))
         .push(Caption::new(
             &ui,
-            "Choose an app, then set how Rift should handle its windows.",
+            "选择应用程序，然后设置 Rift 如何处理其窗口。",
         ))
         .push(picker)
-        .push(Disclosure::new(&ui, "Enter a bundle identifier manually", input))
+        .push(Disclosure::new(&ui, "手动输入包标识符", input))
         .push(matchers)
         .push(validation)
         .push(cancel);
     // The sheet fits its content; give the application list room to read.
     content.min_width(380.0);
-    let native = Sheet::new(&ui, "Add Rule", content);
+    let native = Sheet::new(&ui, "添加规则", content);
     native.fit_content();
     if native.show(&model.env.window.borrow()) {
         *model.sheet.borrow_mut() = Some(native);
@@ -1307,12 +1308,12 @@ fn rule_summary(r: &AppWorkspaceRule) -> String {
         .or(r.ax_subrole.as_ref())
         .or(r.ax_role.as_ref())
         .cloned()
-        .unwrap_or("Rule".into())
+        .unwrap_or("规则".into())
 }
 fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
     let mut f = FormBuilder::new(ui, model);
-    let mut matches = Section::new(&ui, "Matching conditions")
-        .description("Match an application or window title.");
+    let mut matches = Section::new(&ui, "匹配条件")
+        .description("匹配应用或窗口标题。");
     let existing = model
         .source
         .borrow()
@@ -1329,7 +1330,7 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             &weak,
             Box::new(move |s| {
                 let rule =
-                    s.virtual_workspaces.app_rules.get_mut(i).ok_or("Rule no longer exists")?;
+                    s.virtual_workspaces.app_rules.get_mut(i).ok_or("规则已不存在")?;
                 rule.app_id = target.0;
                 rule.app_name = target.1;
                 Ok(())
@@ -1354,15 +1355,15 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             picker.set_text(&name);
         }
     }));
-    matches = matches.row(SettingsRow::new(&ui, "Application", picker_view)).footer(message);
+    matches = matches.row(SettingsRow::new(&ui, "应用程序", picker_view)).footer(message);
     let mut advanced = Section::new(&ui, "");
     for (title, field) in [
-        ("Bundle identifier", 0),
-        ("Application name", 1),
-        ("Window title contains", 2),
-        ("Title regex", 3),
-        ("Accessibility role", 4),
-        ("Accessibility subrole", 5),
+        ("Bundle 标识符", 0),
+        ("应用名称", 1),
+        ("窗口标题包含", 2),
+        ("标题正则", 3),
+        ("无障碍角色", 4),
+        ("无障碍子角色", 5),
     ] {
         let row = f.text(
             title,
@@ -1382,7 +1383,7 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             },
             move |s, v| {
                 let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) else {
-                    return Err("Rule no longer exists".into());
+                    return Err("规则已不存在".into());
                 };
                 let value = (!v.trim().is_empty()).then_some(v);
                 match field {
@@ -1402,10 +1403,10 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             advanced = advanced.row(row);
         }
     }
-    matches = matches.content(Disclosure::new(&ui, "Advanced matching", advanced));
+    matches = matches.content(Disclosure::new(&ui, "高级匹配", advanced));
     let workspace = workspace_popup(
         &mut f,
-        "Workspace",
+        "工作区",
         true,
         move |s| s.virtual_workspaces.app_rules.get(i).and_then(|r| r.workspace.clone()),
         move |s, v| {
@@ -1414,10 +1415,10 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             }
         },
     );
-    let actions = Section::new(&ui, "Window behavior")
+    let actions = Section::new(&ui, "窗口行为")
         .row(workspace)
         .row(f.switch(
-            "Floating",
+            "浮动",
             move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.floating),
             move |s, v| {
                 if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
@@ -1429,7 +1430,7 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             },
         ))
         .row(f.switch(
-            "Focus window",
+            "聚焦窗口",
             move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.focus),
             move |s, v| {
                 if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
@@ -1438,11 +1439,11 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             },
         ))
         .row(f.popup(
-            "Management",
+            "管理方式",
             vec![
-                ("Automatic", None),
-                ("Manage", Some(true)),
-                ("Ignore", Some(false)),
+                ("自动", None),
+                ("管理", Some(true)),
+                ("忽略", Some(false)),
             ],
             move |s| s.virtual_workspaces.app_rules.get(i).and_then(|r| r.manage),
             move |s, v| {
@@ -1450,15 +1451,15 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
                     r.manage = v;
                 }
             },
-        ).help("Automatic manages normal windows and ignores special windows when appropriate. Manage always includes matching windows; Ignore excludes them."));
-    let mut geometry = Section::new(&ui, "Initial size and position").description(
-        "Leave blank to use the existing geometry. Position applies to floating windows.",
+        ).help("自动会管理普通窗口，并在适当时忽略特殊窗口；“管理”始终包含匹配窗口；“忽略”则排除它们。"));
+    let mut geometry = Section::new(&ui, "初始尺寸与位置").description(
+        "留空则沿用现有几何位置。位置仅适用于浮动窗口。",
     );
     for (title, axis) in [
-        ("Horizontal position (%)", 0),
-        ("Vertical position (%)", 1),
-        ("Width (points)", 2),
-        ("Height (points)", 3),
+        ("水平位置 (%)", 0),
+        ("垂直位置 (%)", 1),
+        ("宽度（点）", 2),
+        ("高度（点）", 3),
     ] {
         let row = f.text(
             title,
@@ -1519,7 +1520,7 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             .spacing(Metrics::SECTION_SPACING)
             .push(matches)
             .push(actions)
-            .push(Disclosure::new(&ui, "Set initial size and position", geometry)),
+            .push(Disclosure::new(&ui, "设置初始尺寸与位置", geometry)),
     )
 }
 
@@ -1534,9 +1535,9 @@ pub(super) fn strings(
     let message = Rc::new(ValidationMessage::new(&ui));
     let error = Rc::downgrade(&message);
     let weak = f.model.clone();
-    let field = Rc::new(TextField::new(&ui).placeholder("Add an entry"));
+    let field = Rc::new(TextField::new(&ui).placeholder("添加条目"));
     let input = Rc::downgrade(&field);
-    let add = Button::new(&ui, "Add").on_click(move || {
+    let add = Button::new(&ui, "添加").on_click(move || {
         if let (Some(model), Some(input)) = (weak.upgrade(), input.upgrade()) {
             let value = input.get_value();
             if value.trim().is_empty() {
@@ -1596,7 +1597,7 @@ pub(super) fn display_name(displays: &[ScreenInfo], uuid: &str) -> Option<String
         display
             .name
             .clone()
-            .unwrap_or_else(|| format!("Display {}", display.id.as_u32())),
+            .unwrap_or_else(|| format!("显示器 {}", display.id.as_u32())),
     )
 }
 
@@ -1647,7 +1648,7 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
             let title = |(uuid, _): &(String, bool)| {
                 display_name(&displays, uuid).unwrap_or_else(|| {
                     format!(
-                        "Display {}",
+                        "显示器 {}",
                         uuid.get(..8).map_or(uuid.clone(), |id| format!("{id}…"))
                     )
                 })
@@ -1655,13 +1656,13 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
             self.popup.set_sections([
                 choices.iter().map(title).collect::<Vec<_>>(),
                 saved.iter().map(title).collect(),
-                vec!["Add Display…".into()],
+                vec!["添加显示器…".into()],
             ]);
             drop(displays);
             choices.extend(saved);
             for (index, (uuid, _)) in choices.iter().enumerate() {
                 self.popup
-                    .set_item_badge(index, has_overrides(source, uuid).then_some("Customized"));
+                    .set_item_badge(index, has_overrides(source, uuid).then_some("已自定"));
             }
             let current = self
                 .selected
@@ -1685,14 +1686,14 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
             self.select_current();
             let Some(uuid) = uuid else {
                 self.status.set_text(
-                    "No displays are connected. Add one by its UUID to prepare its settings.",
+                    "未连接显示器。可通过 UUID 添加显示器并预先设置。",
                 );
                 return self.status.set_hidden(false);
             };
             let connected =
                 self.choices.borrow().iter().any(|(id, connected)| *id == uuid && *connected);
             self.status
-                .set_text("Not connected. These settings apply when this display connects.");
+                .set_text("未连接。此显示器连接后将应用这些设置。");
             self.status.set_hidden(connected);
             let mut pages = self.pages.borrow_mut();
             let page = pages
@@ -1742,18 +1743,18 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
                 }
             }
         }));
-        popup.accessibility_label("Display");
-        let uuid = Rc::new(TextField::new(&ui).placeholder("Display UUID"));
-        uuid.accessibility_label("Display UUID");
+        popup.accessibility_label("显示器");
+        let uuid = Rc::new(TextField::new(&ui).placeholder("显示器 UUID"));
+        uuid.accessibility_label("显示器 UUID");
         let owner = weak.clone();
-        let add = Button::new(&ui, "Add").push().key_equivalent("\r").on_click(move || {
+        let add = Button::new(&ui, "添加").push().key_equivalent("\r").on_click(move || {
             if let Some(state) = owner.upgrade() {
                 state.add();
             }
         });
         let owner = weak.clone();
         let cancel =
-            Button::new(&ui, "Cancel").push().key_equivalent("\u{1b}").on_click(move || {
+            Button::new(&ui, "取消").push().key_equivalent("\u{1b}").on_click(move || {
                 if let Some(state) = owner.upgrade() {
                     state.adding.set_hidden(true);
                 }
@@ -1765,7 +1766,7 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
                 .push(HStack::new(&ui).push(Spacer::new(&ui)).push(cancel).push(add))
                 .push({
                     let hint =
-                        Caption::new(&ui, "Find a display’s UUID with rift-cli query displays.");
+                        Caption::new(&ui, "运行 rift-cli query displays 可查找显示器 UUID。");
                     hint.ns_text_field().setAlignment(objc2_app_kit::NSTextAlignment::Right);
                     hint
                 }),
@@ -1801,7 +1802,7 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
         .push(HStack::new(&ui).push(Spacer::new(&ui)).push(state.popup.clone()))
         .push(state.adding.clone())
         .push(objc2::Message::retain(state.status.ns_view()));
-    let row = SettingsRow::new(&ui, "Display", control).label_baseline(state.popup.ns_view());
+    let row = SettingsRow::new(&ui, "显示器", control).label_baseline(state.popup.ns_view());
     let page = VStack::new(&ui)
         .spacing(10.0)
         .push(Section::form(&ui, "").row(row))
@@ -1844,9 +1845,9 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
                         &format!(
                             "{}, {name}",
                             if outer {
-                                "Screen edges"
+                                "屏幕边缘"
                             } else {
-                                "Between windows"
+                                "窗口之间"
                             }
                         ),
                         "pt",
@@ -1874,12 +1875,12 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
             &mut f,
             (
                 if outer {
-                    "Screen edges"
+                    "屏幕边缘"
                 } else {
-                    "Between windows"
+                    "窗口之间"
                 },
-                "Shared settings",
-                "Use Shared",
+                "共享设置",
+                "使用共享值",
             ),
             "pt",
             fields,
@@ -1888,7 +1889,7 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
             move |s| clear_gaps(s, &id, outer),
         ));
     }
-    const WIDTHS: [&str; 3] = ["Default", "Minimum", "Maximum"];
+    const WIDTHS: [&str; 3] = ["默认", "最小", "最大"];
     fn width_mut(o: &mut ScrollingWidthOverride, field: usize) -> &mut Option<f64> {
         match field {
             0 => &mut o.column_width_ratio,
@@ -1911,7 +1912,7 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
                 WIDTHS[field],
                 inherited_field(
                     &mut f,
-                    &format!("{} column width", WIDTHS[field]),
+                    &format!("{}列宽", WIDTHS[field]),
                     "%",
                     100.0,
                     Rc::downgrade(&message),
@@ -1944,9 +1945,9 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
     section = section.row(override_group(
         &mut f,
         (
-            "Scrolling column widths",
-            "the Scrolling layout",
-            "Use Layout Widths",
+            "滚动列宽",
+            "滚动布局",
+            "使用布局列宽",
         ),
         "%",
         fields,
@@ -1963,7 +1964,7 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
         .push(section)
         .push(Caption::new(
             &ui,
-            "Empty fields inherit. Enter a value to customize it for this display.",
+            "空字段沿用已有值。输入数值可为此显示器单独设置。",
         ));
     super::pages::align_form(page.ns_view());
     f.finish(page)
@@ -2013,8 +2014,8 @@ fn override_group(
     reset
         .ns_button()
         .setContentTintColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
-    reset.accessibility_label(&format!("{revert} for {}", title.to_lowercase()));
-    reset.tooltip(&format!("{revert}: follow {source} again on this display"));
+    reset.accessibility_label(&format!("{}：{revert}", title.to_lowercase()));
+    reset.tooltip(&format!("{revert}：此显示器沿用{source}"));
     // Under the label, whether this display follows the shared values or its own.
     let status = Rc::new(Caption::single_line(&ui, ""));
     let first = objc2::Message::retain(fields[0].1.ns_text_field());
@@ -2027,9 +2028,9 @@ fn override_group(
         move |status, s| {
             let custom = overridden(s);
             status.set_text(&if custom {
-                "Custom for this display".to_owned()
+                "为此显示器自定".to_owned()
             } else {
-                format!("From {source}")
+                format!("来自{source}")
             });
             if let Some(reset) = weak_reset.upgrade() {
                 reset.set_hidden(!custom);
@@ -2080,7 +2081,7 @@ fn inherited_field(
     );
     // Assistive apps read an empty field’s placeholder: the inherited value.
     input.accessibility_label(name);
-    input.tooltip(&format!("In {unit}. Leave empty to inherit."));
+    input.tooltip(&format!("单位：{unit}。留空则沿用已有值。"));
     let current = get.clone();
     f.sync_when(
         &input,

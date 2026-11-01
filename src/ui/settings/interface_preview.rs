@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Embed the shipping cgs tab component; only the example window chrome is drawn here.
 use cgs::image::Image;
 use cgs::tabs::{TabBar, TabBarAction, TabBarEdge, TabBarItem};
@@ -11,9 +12,9 @@ use super::*;
 use crate::common::config::*;
 
 const APPS: [(&str, &str); 3] = [
-    ("Finder", "/System/Library/CoreServices/Finder.app"),
-    ("Notes", "/System/Applications/Notes.app"),
-    ("Terminal", "/System/Applications/Utilities/Terminal.app"),
+    ("访达", "/System/Library/CoreServices/Finder.app"),
+    ("备忘录", "/System/Applications/Notes.app"),
+    ("终端", "/System/Applications/Utilities/Terminal.app"),
 ];
 struct ExampleStack {
     tabs: TabBar,
@@ -110,9 +111,9 @@ impl StackPreview {
             surface.setTranslatesAutoresizingMaskIntoConstraints(true);
             surface.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
             surface.setAccessibilityLabel(Some(&NSString::from_str(if i == 0 {
-                "Horizontal stack example"
+                "水平堆叠示例"
             } else {
-                "Vertical stack example"
+                "垂直堆叠示例"
             })));
             view.addSubview(&surface);
             view.ivars().stacks.borrow_mut().push(ExampleStack {

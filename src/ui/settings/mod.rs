@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Lazy main-thread Settings composition. ConfigActor owns all mutations and persistence.
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -78,17 +79,17 @@ impl Category {
     fn title(self) -> &'static str { CATEGORIES[self.index()].1 }
 }
 pub(super) const CATEGORIES: [(Category, &str, &str); 11] = [
-    (Category::General, "General", "gearshape"),
-    (Category::Layouts, "Layouts", "rectangle.split.2x2"),
-    (Category::Workspaces, "Workspaces", "square.grid.2x2"),
-    (Category::Rules, "Rules", "line.3.horizontal.decrease"),
-    (Category::Keyboard, "Keyboard", "keyboard"),
-    (Category::Mouse, "Mouse & Trackpad", "computermouse"),
-    (Category::MenuBar, "Menu Bar", "menubar.rectangle"),
-    (Category::Overview, "Overview", "rectangle.3.group"),
-    (Category::StackTabs, "Stack Tabs", "square.stack.3d.up"),
-    (Category::Advanced, "Advanced", "slider.horizontal.3"),
-    (Category::About, "About", "info.circle"),
+    (Category::General, "通用", "gearshape"),
+    (Category::Layouts, "布局", "rectangle.split.2x2"),
+    (Category::Workspaces, "工作区", "square.grid.2x2"),
+    (Category::Rules, "规则", "line.3.horizontal.decrease"),
+    (Category::Keyboard, "键盘", "keyboard"),
+    (Category::Mouse, "鼠标与触控板", "computermouse"),
+    (Category::MenuBar, "菜单栏", "menubar.rectangle"),
+    (Category::Overview, "总览", "rectangle.3.group"),
+    (Category::StackTabs, "堆叠标签", "square.stack.3d.up"),
+    (Category::Advanced, "高级", "slider.horizontal.3"),
+    (Category::About, "关于", "info.circle"),
 ];
 /// Show an edit's outcome under the control that made it.
 fn report(message: &Weak<ValidationMessage>, result: &Result<(), String>) {
@@ -454,7 +455,7 @@ impl Settings {
             previous: RefCell::new(None),
         });
         let close_activation = activation.clone();
-        let window = SettingsWindow::with_size(&ui, "Rift Settings", CGSize::new(880.0, 660.0));
+        let window = SettingsWindow::with_size(&ui, "Rift 设置", CGSize::new(880.0, 660.0));
         timing::finish(chrome_timing, "native window creation");
         let attachment_timing = timing::start();
         let window = window.page_title(&ui, router.title.clone()).on_close(move || {
@@ -478,7 +479,7 @@ impl Settings {
         let app_menu = Rc::new(Menu::new(&ui));
         let close_window = objc2::rc::Weak::new(window.ns_window());
         app_menu.add(
-            MenuItem::new(&ui, "Close Settings")
+            MenuItem::new(&ui, "关闭设置")
                 .shortcut("w", NSEventModifierFlags::Command)
                 .on_click(move || {
                     if let Some(window) = close_window.load() {
@@ -587,7 +588,7 @@ fn sidebar_pane(ui: Ui, router: &Rc<Router>, sidebar: Rc<SettingsSidebar>) -> Vi
     let open_results = open.clone();
     let weak_content = Rc::downgrade(&content);
     let search = SearchField::new(&ui)
-        .placeholder("Search")
+        .placeholder("搜索")
         .on_change(move |query| {
             let Some(content) = weak_content.upgrade() else {
                 return;
@@ -603,7 +604,7 @@ fn sidebar_pane(ui: Ui, router: &Rc<Router>, sidebar: Rc<SettingsSidebar>) -> Vi
                             Rc::new(
                                 VStack::new(&ui)
                                     .insets(uniform_insets(12.0))
-                                    .push(Caption::new(&ui, "No matching settings")),
+                                    .push(Caption::new(&ui, "没有匹配的设置")),
                             )
                         })
                         .clone()
@@ -1003,7 +1004,7 @@ impl FormBuilder {
         );
         let default = get(defaults());
         if let Some(index) = items.iter().position(|item| *item == default) {
-            input.set_item_badge(index, Some("Default"));
+            input.set_item_badge(index, Some("默认"));
         }
         self.sync_when(
             &input,
@@ -1140,7 +1141,7 @@ impl FormBuilder {
                 input.set_items(labels.iter().map(String::as_str));
                 let inherited = default(source);
                 for (index, item) in items.iter().enumerate() {
-                    input.set_item_badge(index, (*item == inherited).then_some("Default"));
+                    input.set_item_badge(index, (*item == inherited).then_some("默认"));
                 }
                 let effective = get(source).unwrap_or(inherited);
                 input.set_selected(items.iter().position(|item| *item == effective).unwrap_or(0));

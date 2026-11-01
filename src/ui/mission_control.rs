@@ -417,9 +417,9 @@ impl WorkspaceRegion {
             }
         }
         let detail = match count {
-            0 => "Empty".into(),
-            1 => first.and_then(|w| w.data.app_name.clone()).unwrap_or_else(|| "Window".into()),
-            n => format!("{n} windows"),
+            0 => "空".into(),
+            1 => first.and_then(|w| w.data.app_name.clone()).unwrap_or_else(|| "窗口".into()),
+            n => format!("{n} 个窗口"),
         };
         let caption = format!("{} · {detail}", ws.name);
         let leading = if count == 0 {
@@ -2106,13 +2106,13 @@ impl OverviewSession {
                             set_text(
                                 &d.help,
                                 [
-                                    "Zoom out · ⌘− · Pinch to zoom",
-                                    "Actual size · ⌘0",
-                                    "Zoom in · ⌘+ · Pinch to zoom",
-                                    "Fit workspace · ↑↓ switch workspace",
-                                    "Fit all workspaces · Scroll to explore",
-                                    "Open selected window · Return · ←→ select",
-                                    "Return to desktop · Escape",
+                                    "缩小 · ⌘− · 双指捏合缩放",
+                                    "实际大小 · ⌘0",
+                                    "放大 · ⌘+ · 双指捏合缩放",
+                                    "适应工作区 · ↑↓ 切换工作区",
+                                    "显示全部工作区 · 滚动浏览",
+                                    "打开选中窗口 · Return · ←→ 选择",
+                                    "返回桌面 · Escape",
                                 ][i],
                             );
                         }
@@ -2166,7 +2166,7 @@ impl OverviewSession {
                             frame: d.camera.frame(w.world),
                             canvas: None,
                             badge: window_badge(
-                                w.data.app_name.as_deref().unwrap_or("Window"),
+                                w.data.app_name.as_deref().unwrap_or("窗口"),
                                 w.icon_image.as_deref(),
                                 d.scale,
                             )

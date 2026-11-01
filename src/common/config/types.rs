@@ -29,10 +29,12 @@ pub fn config_file() -> PathBuf {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default, Eq, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceMode {
-    /// Each macOS desktop has its own set of workspaces, numbered independently.
+    /// 每个 macOS 桌面拥有独立编号的工作区集合。
     #[default]
+    #[setting(label = "各显示器独立")]
     PerDisplay,
-    /// One set of workspaces across all displays. Each workspace belongs to one display at a time.
+    /// 所有显示器共用一组工作区。每个工作区同一时间只属于一台显示器。
+    #[setting(label = "全局")]
     Global,
 }
 
@@ -40,28 +42,28 @@ pub enum WorkspaceMode {
 #[serde(deny_unknown_fields)]
 pub struct VirtualWorkspaceSettings {
     #[serde(default)]
-    /// Each display has its own workspaces, numbered from 1. When off, workspaces are numbered
-    /// across all displays, and each one stays on a single display.
+    /// 每台显示器各自拥有从 1 开始编号的工作区。关闭后，所有显示器共用连续编号，
+    /// 且每个工作区固定在一台显示器上。
     #[setting(
-        label = "Displays have separate workspaces",
+        label = "各显示器使用独立工作区",
         aliases = "workspace mode global per display multiple monitors spaces",
         custom
     )]
     pub mode: WorkspaceMode,
     #[serde(default = "yes")]
-    /// Organize windows into separate virtual workspaces.
+    /// 将窗口组织到独立的虚拟工作区。
     #[setting(ignore)]
     pub enabled: bool,
     #[serde(default = "default_workspace_count")]
-    /// Number of virtual workspaces.
+    /// 虚拟工作区的数量。
     #[setting(
-        label = "Workspace count",
+        label = "工作区数量",
         custom,
         aliases = "workspace count number desktops spaces"
     )]
     pub default_workspace_count: usize,
     #[serde(default = "yes")]
-    /// Automatically assign new windows to a workspace.
+    /// 自动将新窗口分配到工作区。
     // #[setting(
     //     label = "Auto-assign windows",
     //     aliases = "automatically assign apps workspaces"
@@ -69,46 +71,46 @@ pub struct VirtualWorkspaceSettings {
     #[setting(ignore)]
     pub auto_assign_windows: bool,
     #[serde(default = "yes")]
-    /// Remember the focused window in each workspace.
-    #[setting(label = "Preserve workspace focus", aliases = "remember active focus")]
+    /// 记住各工作区中获得焦点的窗口。
+    #[setting(label = "记住工作区焦点", aliases = "remember active focus")]
     pub preserve_focus_per_workspace: bool,
     #[serde(default)]
-    /// Return to the previous workspace when the active workspace is selected again.
+    /// 再次选择当前工作区时返回上一工作区。
     #[setting(
-        label = "Switch back when selecting active workspace",
+        label = "再次选择当前工作区时返回上一工作区",
         aliases = "back and forth previous desktop"
     )]
     pub workspace_auto_back_and_forth: bool,
     #[serde(default, alias = "prevent_wrapping_around")]
-    /// Stop workspace navigation at the first and last workspace.
-    #[setting(label = "Prevent wrapping", aliases = "cycle last first workspace")]
+    /// 切换到第一个或最后一个工作区时停止，不循环跳转。
+    #[setting(label = "禁用循环切换", aliases = "cycle last first workspace")]
     pub prevent_wrapping: bool,
     #[serde(default = "default_workspace_names")]
-    /// Names assigned to virtual workspaces.
+    /// 为虚拟工作区指定的名称。
     #[setting(
-        label = "Workspaces",
+        label = "工作区",
         custom,
         aliases = "names rename layout desktop space count number add remove"
     )]
     pub workspace_names: Vec<String>,
     #[serde(default)]
-    /// Workspace used for new windows without another assignment.
-    #[setting(label = "Default workspace", custom, aliases = "startup desktop space")]
+    /// 未被其它规则分配的新窗口使用此工作区。
+    #[setting(label = "默认工作区", custom, aliases = "startup desktop space")]
     pub default_workspace: usize,
     #[serde(default)]
-    /// Recheck workspace rules when a window title changes.
+    /// 窗口标题变化时重新检查工作区规则。
     #[setting(
-        label = "Reapply rules when titles change",
+        label = "标题变化时重新应用规则",
         aliases = "application title updated match workspace"
     )]
     pub reapply_app_rules_on_title_change: bool,
     #[serde(default)]
-    /// Assign matching applications and windows to workspaces.
-    #[setting(label = "App rules", custom)]
+    /// 将匹配的应用和窗口分配到工作区。
+    #[setting(label = "应用规则", custom)]
     pub app_rules: Vec<AppWorkspaceRule>,
     #[serde(default)]
-    /// Choose independent layouts and ordered display preferences for individual workspaces.
-    #[setting(label = "Workspace rules", custom)]
+    /// 为单个工作区设置独立布局和有序的显示器偏好。
+    #[setting(label = "工作区规则", custom)]
     pub workspace_rules: Vec<WorkspaceLayoutRule>,
 }
 
@@ -119,9 +121,8 @@ pub struct WorkspaceLayoutRule {
     pub workspace: WorkspaceSelector,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutMode>,
-    /// Ordered display UUIDs, names, or builtin/left/right/top/bottom selectors.
-    /// The first eligible preference wins. Only applies when
-    /// `mode = "global"`.
+    /// 按优先级排列的显示器 UUID、名称，或 builtin/left/right/top/bottom 选择器。
+    /// 第一个可用偏好生效；仅在 `mode = "global"` 时适用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde_as(as = "Option<serde_with::OneOrMany<_>>")]
     pub display: Option<Vec<String>>,
@@ -132,56 +133,50 @@ pub struct WorkspaceLayoutRule {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AppWorkspaceRule {
-    /// Application bundle identifier (e.g., "com.apple.Terminal")
+    /// 应用 Bundle 标识符，例如 "com.apple.Terminal"。
     #[setting(custom)]
     pub app_id: Option<String>,
-    /// Target workspace index (0 based) OR workspace name. If None, window goes to active workspace.
+    /// 目标工作区索引（从 0 开始）或工作区名称。未指定时窗口进入当前工作区。
     #[setting(custom)]
     pub workspace: Option<WorkspaceSelector>,
     #[serde(default)]
     #[setting(custom)]
     pub floating: bool,
-    /// Initial normalized position for a floating window. `(0, 0)` is the top-left
-    /// and `(1, 1)` is the bottom-right of the available screen area.
+    /// 浮动窗口的初始归一化位置。可用屏幕区域左上角为 `(0, 0)`，
+    /// 右下角为 `(1, 1)`。
     #[setting(custom)]
     pub position: Option<AppRulePosition>,
-    /// Preferred window size in logical pixels.
+    /// 首选窗口尺寸，以逻辑像素为单位。
     #[setting(custom)]
     pub size: Option<AppRuleSize>,
-    /// Focus the window after applying this rule, switching virtual workspaces if needed.
+    /// 应用此规则后聚焦窗口，必要时切换虚拟工作区。
     #[serde(default)]
     #[setting(custom)]
     pub focus: bool,
-    /// An explicit management override. `false` makes the window invisible to Rift;
-    /// `true` overrides normal manageability heuristics for a visible window. When
-    /// omitted, the matching rule leaves Rift's normal manageability decision intact.
+    /// 显式管理覆盖：`false` 使窗口对 Rift 不可见；`true` 对可见窗口强制启用管理。
+    /// 省略时保留 Rift 的正常可管理性判断。
     #[serde(default)]
     #[setting(custom)]
     pub manage: Option<bool>,
     #[setting(custom)]
     pub app_name: Option<String>,
-    /// Optional: Regular expression to match window title (applies to window.title)
+    /// 可选的窗口标题正则表达式，用于匹配 window.title。
     ///
-    /// If present, this regex will be used when attempting to match a window by
-    /// title.
+    /// 存在时优先作为标题匹配条件使用。
     #[setting(custom)]
     pub title_regex: Option<String>,
-    /// Optional: Substring to search for in window title (applies to window.title)
+    /// 可选的窗口标题子字符串，用于匹配 window.title。
     ///
-    /// If present, rift will internally treat this as a substring match and will
-    /// construct a regex to match titles containing this substring. This allows
-    /// people who don't want to write full regexes to match by a simple substring.
+    /// 存在时按子串匹配处理，便于不想写完整正则的用户。
     #[setting(custom)]
     pub title_substring: Option<String>,
 
-    /// Optional: Accessibility role to match (AXRole). If present, it must be a
-    /// non-empty string and will be compared against the accessibility role
-    /// reported by the AX APIs for a window (exact string match).
+    /// 可选：要匹配的无障碍角色（AXRole）。存在时必须为非空字符串，
+    /// 并与 AX API 报告的窗口角色精确比较。
     #[setting(custom)]
     pub ax_role: Option<String>,
 
-    /// Accessibility subrole must be non-empty and is compared against the subrole
-    /// reported by the AX APIs for a window (exact string match).
+    /// 无障碍子角色，必须非空，并与 AX API 报告的窗口子角色精确比较。
     #[setting(custom)]
     pub ax_subrole: Option<String>,
 }
@@ -467,8 +462,8 @@ pub struct ConfigSource {
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, WmCommand>>,
     #[serde(default)]
     pub virtual_workspaces: VirtualWorkspaceSettings,
-    /// Modifier combinations that can be reused in key bindings
-    /// e.g., "comb1" = "Alt + Shift" allows using "comb1 + C" in keys
+    /// 可在按键绑定中复用的修饰键组合。
+    /// 例如 "comb1" = "Alt + Shift" 之后，可在按键中使用 "comb1 + C"。
     #[serde(default)]
     pub modifier_combinations: std::collections::BTreeMap<String, String>,
 }
@@ -492,15 +487,15 @@ unsafe impl Sync for Config {}
 #[setting(group = "general")]
 pub struct Settings {
     #[serde(default)]
-    /// Animate windows when their layout changes.
+    /// 窗口布局变化时播放动画。
     #[setting(
-        label = "Animate window changes",
+        label = "窗口变化动画",
         group = "general",
         aliases = "animation transitions motion"
     )]
     pub animate: bool,
     #[serde(default = "default_animation_duration")]
-    /// Duration of a window animation, in seconds.
+    /// 窗口动画时长，以秒为单位。
     // #[setting(
     //     label = "Duration (seconds)",
     //     group = "general",
@@ -510,7 +505,7 @@ pub struct Settings {
     #[setting(ignore)]
     pub animation_duration: f64,
     #[serde(default = "default_animation_fps")]
-    /// Maximum number of frames per second during a window animation.
+    /// 窗口动画的最大每秒帧数。
     // #[setting(
     //     label = "Frame rate",
     //     group = "general",
@@ -520,7 +515,7 @@ pub struct Settings {
     #[setting(ignore)]
     pub animation_fps: f64,
     #[serde(default)]
-    /// The timing curve used for window animations.
+    /// 窗口动画使用的时序曲线。
     // #[setting(
     //     label = "Animation easing",
     //     group = "general",
@@ -531,55 +526,55 @@ pub struct Settings {
     #[setting(ignore)]
     pub animation_easing: AnimationEasing,
     #[serde(default = "yes")]
-    /// Start Rift with automatic tiling turned off.
+    /// 启动 Rift 时关闭自动平铺。
     #[setting(
-        label = "Start with tiling disabled",
+        label = "启动时关闭平铺",
         group = "general",
         aliases = "floating startup automatic tiling"
     )]
     pub default_disable: bool,
     #[serde(default = "yes")]
-    /// Move the pointer into the window when focus changes.
+    /// 焦点变化时将指针移入获得焦点的窗口。
     #[setting(
-        label = "Move pointer to focused window",
+        label = "将指针移到焦点窗口",
         group = "pointer",
         aliases = "mouse follows focus cursor warp"
     )]
     pub mouse_follows_focus: bool,
     #[serde(default = "yes")]
-    /// Hide the pointer after moving it into the focused window.
+    /// 将指针移入焦点窗口后隐藏指针。
     #[setting(
-        label = "Hide pointer after focusing",
+        label = "聚焦后隐藏指针",
         group = "pointer",
         enabled_by = "mouse_follows_focus",
         aliases = "hide mouse cursor"
     )]
     pub mouse_hides_on_focus: bool,
     #[serde(default = "yes")]
-    /// Focus a window when the pointer moves over it.
+    /// 指针移到窗口上方时聚焦该窗口。
     #[setting(
-        label = "Focus follows pointer",
+        label = "焦点跟随指针",
         group = "pointer",
         order = 0,
         aliases = "ffm focus follows mouse hover autofocus"
     )]
     pub focus_follows_mouse: bool,
-    /// Treat vertically stacked displays as a horizontal pointer chain.
-    /// `top-to-bottom` maps higher displays to the left; `bottom-to-top` reverses it.
+    /// 将上下排列的显示器视为水平指针链。
+    /// `top-to-bottom` 把较高的显示器映射到左侧，`bottom-to-top` 反向映射。
     #[serde(default)]
     #[setting(ignore)]
     pub horizontal_mouse_warp: Option<HorizontalMouseWarp>,
-    /// Hotkey that disables focus-follows-mouse while held.
-    /// Accepts either a full hotkey (e.g. "Ctrl + A") or a modifier-only spec (e.g. "Ctrl")
+    /// 按住时临时禁用焦点跟随指针的快捷键。
+    /// 接受完整快捷键（如 "Ctrl + A"）或仅修饰键（如 "Ctrl"）。
     #[serde(default)]
     #[setting(ignore)]
     pub focus_follows_mouse_disable_hotkey: Option<HotkeySpec>,
-    /// Apps that should not trigger automatic workspace switching when activated.
-    /// List of bundle identifiers (e.g., "com.apple.Spotlight") that often
-    /// inappropriately steal focus and shouldn't cause workspace switches.
+    /// 激活时不应触发自动工作区切换的应用。
+    /// 填写常会不当抢占焦点的 Bundle 标识符（如 "com.apple.Spotlight"），
+    /// 避免其引发工作区切换。
     #[serde(default)]
     #[setting(
-        label = "Autofocus blacklist",
+        label = "自动聚焦排除列表",
         group = "advanced",
         custom,
         aliases = "focus exclude ignore app"
@@ -591,30 +586,30 @@ pub struct Settings {
     #[serde(default)]
     #[setting(ignore)]
     pub ui: UiSettings,
-    /// Trackpad gesture settings
+    /// 触控板手势设置。
     #[serde(default)]
     #[setting(ignore)]
     pub gestures: GestureSettings,
-    /// Modifier-assisted dragging and tiled-window drop settings.
+    /// 修饰键拖动与平铺窗口放置设置。
     #[serde(default)]
     #[setting(ignore)]
     pub drag_drop: DragDropSettings,
 
-    /// Commands to run on startup (e.g., for subscribing to events)
+    /// 启动时执行的命令，例如用于订阅事件的命令。
     #[serde(default)]
     #[setting(
-        label = "Startup commands",
+        label = "启动命令",
         group = "advanced",
         custom,
         aliases = "launch run shell exec"
     )]
     pub run_on_start: Vec<String>,
 
-    /// Enable hot-reloading of the config file when it changes
+    /// 配置文件变化时启用热重载。
     #[serde(default = "yes")]
-    /// Reload the configuration automatically when the file changes.
+    /// 配置文件变化时自动重新载入。
     #[setting(
-        label = "Reload config when edited externally",
+        label = "外部编辑后重新载入配置",
         group = "advanced",
         aliases = "configuration file automatic reload toml"
     )]
@@ -643,42 +638,41 @@ pub struct UiSettings {
 #[serde(deny_unknown_fields)]
 #[setting(group = "main")]
 pub struct GestureSettings {
-    /// Enable horizontal swipes to switch virtual workspaces
+    /// 启用水平轻扫以切换虚拟工作区。
     #[serde(default)]
-    #[setting(label = "Enabled", group = "main")]
+    #[setting(label = "启用", group = "main")]
     pub enabled: bool,
-    /// If true, consume horizontal swipe events owned by Rift so macOS and the
-    /// foreground app do not also handle them.
+    /// 若启用，Rift 会拦截并处理水平轻扫事件，macOS 与前台应用不再同时处理。
     #[serde(default = "yes")]
-    #[setting(label = "Consume macOS workspace swipe", group = "main")]
+    #[setting(label = "拦截 macOS 工作区轻扫", group = "main")]
     pub consume_dock_swipe: bool,
-    /// Invert horizontal direction (swap next/prev)
+    /// 反转水平方向，交换下一个与上一个工作区。
     #[serde(default)]
-    #[setting(label = "Invert direction", group = "main")]
+    #[setting(label = "反转方向", group = "main")]
     pub invert_horizontal_swipe: bool,
-    /// Maximum absolute Y delta allowed for the gesture to count as horizontal
+    /// 将手势识别为水平轻扫时，允许的最大垂直偏移绝对值。
     #[serde(default = "default_swipe_vertical_tolerance")]
-    #[setting(label = "Vertical tolerance", group = "advanced")]
+    #[setting(label = "垂直容差", group = "advanced")]
     pub swipe_vertical_tolerance: f64,
-    /// If true, attempt to skip empty workspaces on swipe (if supported)
+    /// 轻扫时尝试跳过空工作区（需要相关支持）。
     #[serde(default)]
-    #[setting(label = "Skip empty workspaces", group = "main")]
+    #[setting(label = "跳过空工作区", group = "main")]
     pub skip_empty: bool,
-    /// Number of fingers required for swipe (default = 3)
+    /// 轻扫所需的手指数，默认为 3。
     #[serde(default = "default_swipe_fingers")]
-    #[setting(label = "Fingers", group = "main")]
+    #[setting(label = "手指数", group = "main")]
     pub fingers: usize,
-    /// Normalized horizontal distance (0..1) required to fire a swipe
+    /// 触发轻扫所需的归一化水平距离（0 到 1）。
     #[serde(default = "default_distance_pct")]
-    #[setting(label = "Distance (%)", group = "advanced", scale = 100.0)]
+    #[setting(label = "触发距离 (%)", group = "advanced", scale = 100.0)]
     pub distance_pct: f64,
-    /// Enable haptic feedback when a swipe commits
+    /// 轻扫生效时提供触觉反馈。
     #[serde(default = "yes")]
-    #[setting(label = "Haptic feedback", group = "main")]
+    #[setting(label = "触觉反馈", group = "main")]
     pub haptics_enabled: bool,
-    /// Haptic feedback pattern (generic | alignment | level_change)
+    /// 触觉反馈模式：通用、对齐或级别变化。
     #[serde(default)]
-    #[setting(label = "Haptic pattern", group = "advanced", choices)]
+    #[setting(label = "触觉反馈模式", group = "advanced", choices)]
     pub haptic_pattern: HapticPattern,
 }
 
@@ -703,10 +697,10 @@ impl Default for GestureSettings {
 /// key-binding syntax such as `Ctrl + Alt + Shift + Meta`.
 #[derive(Debug, PartialEq, Clone, Copy, Default, Eq, SerializeDisplay, DeserializeFromStr)]
 pub enum MouseModifier {
-    /// Globe/Fn. This is the default because it rarely conflicts with apps.
+    /// 地球仪/Fn 功能键。通常与应用的快捷键冲突较少，因此作为默认值。
     #[default]
     Fn,
-    /// One or more modifier families. One family matches while held, two or more match exactly.
+    /// 一个或多个修饰键族。单个族按住即匹配；两个及以上需完全匹配。
     Keys(Modifiers),
 }
 
@@ -738,70 +732,70 @@ impl std::fmt::Display for MouseModifier {
     }
 }
 
-/// Operation reserved for a modifier-plus-mouse-button gesture.
+/// 修饰键加鼠标按键手势使用的操作。
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default, Eq, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum MouseAction {
-    /// Do not capture this button; the click is delivered normally.
-    #[setting(label = "Pass through")]
+    /// 不捕获此按键，点击按正常方式传递。
+    #[setting(label = "直接传递")]
     None,
-    /// Move a window from anywhere inside it.
+    /// 在窗口内部任意位置拖动窗口。
     #[default]
-    #[setting(label = "Move window")]
+    #[setting(label = "移动窗口")]
     Move,
 }
 
-/// Action used when a tiled window is released in another tile's center zone.
+/// 平铺窗口在另一窗口中心区域释放时执行的操作。
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default, Eq, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum MouseDropAction {
-    /// Exchange the source and target's logical layout positions.
+    /// 交换源窗口与目标窗口在布局中的位置。
     #[default]
+    #[setting(label = "交换位置")]
     Swap,
-    /// Move the source into the target's stack/group and select the source.
+    /// 将源窗口并入目标的堆叠组，并选中源窗口。
+    #[setting(label = "堆叠")]
     Stack,
 }
 
-/// Modifier mouse actions and native tiled-window drop settings.
+/// 修饰键鼠标操作与原生平铺窗口放置设置。
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DragDropSettings {
-    /// Enable trackpad feedback after a successful window drop.
+    /// 成功放置窗口后提供触控板触觉反馈。
     #[serde(default = "yes")]
-    #[setting(label = "Haptic feedback", order = 7)]
+    #[setting(label = "触觉反馈", order = 7)]
     pub haptics_enabled: bool,
-    /// Enables native drag targeting and modifier mouse actions.
+    /// 启用原生拖放目标选择和修饰键鼠标操作。
     #[serde(default = "yes")]
-    #[setting(order = 0)]
+    #[setting(label = "启用", order = 0)]
     pub enabled: bool,
-    /// Modifier held with `action1` or `action2`: `cmd`, `alt`, `shift`, `ctrl`, `fn`,
-    /// or a combination such as `Ctrl + Alt + Shift + Meta` (`fn` can't be combined).
-    /// Left/right spellings such as `AltRight` match either side. A single modifier works
-    /// while held; a combination must be held exactly.
+    /// 与 `action1` 或 `action2` 配合按住的修饰键：`cmd`、`alt`、`shift`、`ctrl`、`fn`，
+    /// 或 `Ctrl + Alt + Shift + Meta` 之类的组合（`fn` 不能参与组合）。
+    /// `AltRight` 等左右写法匹配任意一侧；单修饰键按住即生效，组合需完全匹配。
     #[serde(default)]
     #[setting(custom, order = 1)]
     pub modifier: MouseModifier,
-    /// Left-button action while the configured modifier is held.
+    /// 按住指定修饰键时，鼠标左键执行的操作。
     #[serde(default)]
-    #[setting(label = "Primary button", choices, order = 2)]
+    #[setting(label = "主按钮", choices, order = 2)]
     pub action1: MouseAction,
-    /// Right-button action while the configured modifier is held.
+    /// 按住指定修饰键时，鼠标右键执行的操作。
     #[serde(default = "default_mouse_action_none")]
-    #[setting(label = "Secondary button", choices, order = 3)]
+    #[setting(label = "辅助按钮", choices, order = 3)]
     pub action2: MouseAction,
-    /// Center-zone action for tiled move drops.
+    /// 将平铺窗口拖到目标窗口中心区域时执行的操作。
     #[serde(default)]
-    #[setting(label = "Drop in center", choices, order = 4)]
+    #[setting(label = "放到中心时", choices, order = 4)]
     pub drop_action: MouseDropAction,
-    /// Depth of each edge zone as a fraction of the destination window's size.
-    /// Valid values are `0.10..=0.45`; the default is `0.25`.
+    /// 各边缘区域占目标窗口尺寸的比例。有效范围 `0.10..=0.45`，默认 `0.25`。
     #[serde(default = "default_drop_zone_fraction")]
-    #[setting(label = "Center drop zone (%)", scale = 100.0, order = 5)]
+    #[setting(label = "中心放置区域 (%)", scale = 100.0, order = 5)]
     pub drop_zone_fraction: f64,
-    /// Shows a translucent, rounded WindowServer overlay for the pending drop.
-    /// The overlay is updated only when the target tile or drop zone changes.
+    /// 为待放置操作显示半透明圆角 WindowServer 覆盖层。
+    /// 仅当目标平铺区域或放置区域变化时更新。
     #[serde(default = "yes")]
-    #[setting(label = "Show drop preview", order = 6)]
+    #[setting(label = "显示放置预览", order = 6)]
     pub preview: bool,
 }
 
@@ -824,7 +818,9 @@ impl Default for DragDropSettings {
 #[serde(rename_all = "snake_case")]
 pub enum MenuBarDisplayMode {
     #[default]
+    #[setting(label = "所有工作区")]
     All,
+    #[setting(label = "当前工作区")]
     Active,
 }
 
@@ -832,7 +828,9 @@ pub enum MenuBarDisplayMode {
 #[serde(rename_all = "snake_case")]
 pub enum ActiveWorkspaceLabel {
     #[default]
+    #[setting(label = "序号")]
     Index,
+    #[setting(label = "名称")]
     Name,
 }
 
@@ -840,7 +838,9 @@ pub enum ActiveWorkspaceLabel {
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceDisplayStyle {
     #[default]
+    #[setting(label = "布局")]
     Layout,
+    #[setting(label = "标签")]
     Label,
 }
 
@@ -848,40 +848,40 @@ pub enum WorkspaceDisplayStyle {
 #[serde(deny_unknown_fields)]
 pub struct MenuBarSettings {
     #[serde(default = "yes")]
-    /// Show Rift and workspace information in the menu bar.
-    #[setting(label = "Show menu bar indicator")]
+    /// 在菜单栏显示 Rift 与工作区信息。
+    #[setting(label = "显示菜单栏指示器")]
     pub enabled: bool,
     #[serde(default)]
-    /// Include workspaces without windows in the menu bar.
-    #[setting(label = "Show empty workspaces", enabled_by = "enabled")]
+    /// 在菜单栏中包含没有窗口的工作区。
+    #[setting(label = "显示空工作区", enabled_by = "enabled")]
     pub show_empty: bool,
     #[serde(default = "yes")]
-    /// Show the active binding mode beside workspaces, except in default mode.
-    #[setting(label = "Show binding mode", enabled_by = "enabled")]
+    /// 在工作区旁显示当前快捷键模式（默认模式除外）。
+    #[setting(label = "显示快捷键模式", enabled_by = "enabled")]
     pub show_binding_mode: bool,
     #[serde(default)]
-    /// Only show workspaces from the display currently hosting the active menu bar.
-    #[setting(label = "Only show current display", enabled_by = "enabled")]
+    /// 仅显示当前菜单栏所在显示器的工作区。
+    #[setting(label = "仅显示当前显示器", enabled_by = "enabled")]
     pub current_display_only: bool,
     #[serde(default)]
-    /// Choose whether to show all workspaces or only the active one.
-    #[setting(label = "Workspaces to show", choices, enabled_by = "enabled")]
+    /// 选择显示全部工作区或仅显示当前工作区。
+    #[setting(label = "显示的工作区", choices, enabled_by = "enabled")]
     pub mode: MenuBarDisplayMode,
     #[serde(default)]
-    /// Choose workspace numbers or names when using the label display style.
-    #[setting(label = "Workspace labels", choices, enabled_by = "enabled")]
+    /// 使用标签样式时，选择显示工作区编号或名称。
+    #[setting(label = "工作区标签", choices, enabled_by = "enabled")]
     pub active_label: ActiveWorkspaceLabel,
     #[serde(default)]
-    /// Show workspace labels or layout indicators.
-    #[setting(label = "Display style", choices, enabled_by = "enabled")]
+    /// 显示工作区标签或布局指示图标。
+    #[setting(label = "显示样式", choices, enabled_by = "enabled")]
     pub display_style: WorkspaceDisplayStyle,
     #[serde(default)]
-    /// Wrap workspace labels or layout indicators in brackets when a window is fullscreen.
-    #[setting(label = "Show fullscreen indicator", enabled_by = "enabled")]
+    /// 窗口全屏时用方括号包裹工作区标签或布局指示。
+    #[setting(label = "显示全屏标记", enabled_by = "enabled")]
     pub show_fullscreen_indicator: bool,
     #[serde(default = "default_layout_folder")]
-    /// Folder containing custom layout indicator images.
-    #[setting(label = "Layout folder", custom, enabled_by = "enabled")]
+    /// 存放自定义布局指示图片的文件夹。
+    #[setting(label = "布局文件夹", custom, enabled_by = "enabled")]
     pub layout_folder: PathBuf,
 }
 
@@ -915,29 +915,29 @@ impl Default for MenuBarSettings {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StackLineSettings {
-    /// Show native Liquid Glass tabs beside stacked windows.
+    /// 在堆叠窗口旁显示原生 Liquid Glass 标签。
     #[serde(default = "yes")]
-    #[setting(label = "Enabled")]
+    #[setting(label = "启用")]
     pub enabled: bool,
     #[serde(default)]
-    /// What hovering a tab does: just highlight it, or select it as a click would.
-    #[setting(label = "Interaction", choices, enabled_by = "enabled")]
+    /// 悬停标签时的行为：仅高亮，或像点击一样选中。
+    #[setting(label = "交互方式", choices, enabled_by = "enabled")]
     pub hover: StackLineHoverMode,
     #[serde(default)]
-    /// Where the tabs sit for a horizontal stack.
-    #[setting(label = "Horizontal placement", choices, enabled_by = "enabled")]
+    /// 水平堆叠时标签的位置。
+    #[setting(label = "水平堆叠时的位置", choices, enabled_by = "enabled")]
     pub horiz_placement: HorizontalPlacement,
     #[serde(default)]
-    /// Where the tabs sit for a vertical stack; their titles run along the bar.
-    #[setting(label = "Vertical placement", choices, enabled_by = "enabled")]
+    /// 垂直堆叠时标签的位置；标题沿标签栏排列。
+    #[setting(label = "垂直堆叠时的位置", choices, enabled_by = "enabled")]
     pub vert_placement: VerticalPlacement,
     #[serde(default = "default_stack_line_thickness")]
-    /// Thickness of the tab bar, in points (at least 20).
-    #[setting(label = "Thickness (points)", enabled_by = "enabled")]
+    /// 标签栏厚度，单位为点（至少 20）。
+    #[setting(label = "厚度 (点)", enabled_by = "enabled")]
     pub thickness: f64,
     #[serde(default)]
-    /// Space between the tab bar and its windows, in points.
-    #[setting(label = "Spacing (points)", enabled_by = "enabled")]
+    /// 标签栏与窗口之间的间距，单位为点。
+    #[setting(label = "间距 (点)", enabled_by = "enabled")]
     pub spacing: f64,
 }
 
@@ -957,7 +957,7 @@ impl Default for StackLineSettings {
 fn default_stack_line_thickness() -> f64 { cgs::tabs::TabBar::HEIGHT }
 
 impl StackLineSettings {
-    /// The native tab bar is unusable below this thickness.
+    /// 原生标签栏低于此厚度时不可用。
     pub const MIN_THICKNESS: f64 = 20.0;
 
     pub fn validate(&self) -> Vec<String> {
@@ -979,16 +979,16 @@ impl StackLineSettings {
     }
 }
 
-/// Values keep their pre-native meanings so existing configs behave as before.
+/// 保留原生标签栏之前的取值含义，使现有配置行为不变。
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum StackLineHoverMode {
-    /// Hovering a tab selects it, as a click would.
-    #[setting(label = "Select on hover")]
+    /// 悬停标签即选中，效果与点击相同。
+    #[setting(label = "悬停即选中")]
     Click,
-    /// Hovering only highlights a tab; click to select it.
+    /// 悬停时仅高亮标签，点击后选中。
     #[default]
-    #[setting(label = "Click to select")]
+    #[setting(label = "点击选择")]
     Hover,
 }
 
@@ -1000,7 +1000,9 @@ impl StackLineHoverMode {
 #[serde(rename_all = "snake_case")]
 pub enum HorizontalPlacement {
     #[default]
+    #[setting(label = "上方")]
     Top,
+    #[setting(label = "下方")]
     Bottom,
 }
 
@@ -1008,7 +1010,9 @@ pub enum HorizontalPlacement {
 #[serde(rename_all = "snake_case")]
 pub enum VerticalPlacement {
     #[default]
+    #[setting(label = "左侧")]
     Left,
+    #[setting(label = "右侧")]
     Right,
 }
 
@@ -1041,7 +1045,7 @@ impl StackLineReserve {
         }
     }
 
-    /// Shrinks a stack's frame to leave room for its bar.
+    /// 收缩堆叠区域，为标签栏留出空间。
     pub fn inset(
         &self,
         mut rect: objc2_core_foundation::CGRect,
@@ -1064,7 +1068,7 @@ impl StackLineReserve {
         rect
     }
 
-    /// The bar's own frame along the reserved edge of a stack's frame, never beyond it.
+    /// 标签栏沿堆叠预留边缘的自身区域，不会越界。
     pub fn bar(
         &self,
         rect: objc2_core_foundation::CGRect,
@@ -1089,25 +1093,25 @@ impl StackLineReserve {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MissionControlSettings {
-    /// Include workspaces without windows in Overview.
+    /// 在总览中显示没有窗口的工作区。
     #[serde(default = "yes")]
-    #[setting(label = "Show empty workspaces", enabled_by = "enabled")]
+    #[setting(label = "显示空工作区", enabled_by = "enabled")]
     pub show_empty_workspaces: bool,
     #[serde(default = "yes")]
-    /// Show a preview of each window in Overview. Requires Screen Recording permission.
-    #[setting(label = "Window previews", enabled_by = "enabled")]
+    /// 在总览中显示每个窗口的预览。需要屏幕录制权限。
+    #[setting(label = "窗口预览", enabled_by = "enabled")]
     pub window_previews: bool,
     #[serde(default)]
-    /// Enable the workspace Overview. Requires restarting Rift.
-    #[setting(label = "Enabled", order = 0)]
+    /// 启用工作区总览。需要重启 Rift。
+    #[setting(label = "启用", order = 0)]
     pub enabled: bool,
     #[serde(default)]
-    /// Fade Overview labels and decorations in and out.
-    #[setting(label = "Fade transitions", enabled_by = "enabled")]
+    /// 总览标签与装饰使用渐隐渐显过渡。
+    #[setting(label = "淡入淡出", enabled_by = "enabled")]
     pub fade_enabled: bool,
     #[serde(default = "default_mission_control_fade_duration_ms")]
-    /// Duration of Overview entry and camera navigation, in milliseconds.
-    #[setting(label = "Animation duration", unit = "ms", enabled_by = "enabled")]
+    /// 总览进入与镜头导航时长，单位为毫秒。
+    #[setting(label = "淡入淡出时长", unit = "ms", enabled_by = "enabled")]
     pub fade_duration_ms: f64,
 }
 
@@ -1146,23 +1150,23 @@ impl StackLineSettings {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum WindowInsertionPoint {
-    /// Insert a new window immediately after the current selection.
+    /// 在当前选中项之后插入新窗口。
     #[default]
     NextToSelection,
-    /// Append a new window at the end of the layout tree.
+    /// 将新窗口追加到布局树末尾。
     EndOfTree,
 }
 
-/// Options understood by every layout system.
+/// 所有布局系统共用的选项。
 ///
-/// These fields are flattened into both `[settings.layout]` and every
-/// per-layout table. A per-layout value overrides the layout-wide value.
+/// 这些字段会同时展开到 `[settings.layout]` 与各布局表中；
+/// 单个布局表的值优先。
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BaseLayoutSettings {
-    /// Where newly managed windows are inserted.
+    /// 新纳入管理的窗口在布局中的插入位置。
     #[serde(default)]
-    #[setting(label = "New window position", custom)]
+    #[setting(label = "新窗口位置", custom)]
     pub window_insertion_point: Option<WindowInsertionPoint>,
 }
 
@@ -1172,10 +1176,10 @@ pub struct TraditionalLayoutSettings {
     #[serde(flatten)]
     #[setting(ignore)]
     pub base: BaseLayoutSettings,
-    /// Use Sway-style sibling normalization when inserting nodes. New nodes receive the
-    /// average sibling weight instead of splitting the selected node's share.
+    /// 插入节点时使用 Sway 风格的兄弟节点归一化。新节点获得兄弟节点的平均权重，
+    /// 而不是拆分选中节点的份额。
     #[serde(default = "yes")]
-    #[setting(label = "Keep windows equally sized")]
+    #[setting(label = "保持窗口等大")]
     pub equalize_nodes: bool,
 }
 
@@ -1194,42 +1198,42 @@ pub struct BspLayoutSettings {
     #[serde(flatten)]
     #[setting(ignore)]
     pub base: BaseLayoutSettings,
-    /// Center a lone window at this width-to-height ratio.
-    #[setting(label = "Single window aspect ratio", custom)]
+    /// 单个窗口按此宽高比居中。
+    #[setting(label = "单窗口宽高比", custom)]
     pub single_window_aspect_ratio: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LayoutSettings {
-    /// Settings inherited by every layout type unless overridden by its table.
+    /// 所有布局类型继承的设置，布局表中的值可覆盖。
     #[serde(flatten)]
     #[setting(ignore)]
     pub base: BaseLayoutSettings,
-    /// Layout used by workspaces without their own layout override.
+    /// 未单独指定布局的工作区使用的布局。
     #[serde(default)]
-    #[setting(label = "Default layout", choices)]
+    #[setting(label = "默认布局", choices)]
     pub mode: LayoutMode,
-    /// Traditional layout configuration
+    /// 传统布局配置。
     #[serde(default)]
     #[setting(ignore)]
     pub traditional: TraditionalLayoutSettings,
-    /// BSP layout configuration
+    /// 二分布局配置。
     #[serde(default)]
     #[setting(ignore)]
     pub bsp: BspLayoutSettings,
-    /// Stack system configuration
+    /// 堆叠系统配置。
     #[serde(default)]
     #[setting(ignore)]
     pub stack: StackSettings,
-    /// Master/stack layout configuration
+    /// 主从布局配置。
     #[serde(default)]
     #[setting(ignore)]
     pub master_stack: MasterStackSettings,
     #[serde(default)]
     #[setting(ignore)]
     pub gaps: GapSettings,
-    /// Scrolling layout configuration (niri-style columns)
+    /// 滚动布局配置（niri 风格列）。
     #[serde(default)]
     #[setting(ignore)]
     pub scrolling: ScrollingLayoutSettings,
@@ -1241,74 +1245,74 @@ pub struct ScrollingLayoutSettings {
     #[serde(flatten)]
     #[setting(ignore)]
     pub base: BaseLayoutSettings,
-    /// Whether to animate windows moving in the scrolling layout
-    /// HIGHLY RECOMMENDED to leave this enabled.
+    /// 是否对滚动布局中的窗口移动播放动画。
+    /// 强烈建议保持启用。
     #[serde(default = "default_scrolling_animate")]
     #[setting(
-        label = "Animate navigation",
+        label = "导航动画",
         custom,
         aliases = "animation transitions motion"
     )]
     pub animate: Option<bool>,
-    /// Default width of the active column, as a fraction of the screen width.
+    /// 当前列的默认宽度，占屏幕宽度的比例。
     #[serde(default = "default_scrolling_column_width_ratio")]
     #[setting(
-        label = "Default column width",
+        label = "默认列宽",
         custom,
         aliases = "column width sizing percentages tiling"
     )]
     pub column_width_ratio: f64,
-    /// Proportional column widths cycled in configured order.
+    /// 按配置顺序循环使用的列宽比例。
     #[serde(default = "default_scrolling_preset_column_widths")]
     #[setting(
-        label = "Width presets",
+        label = "预设宽度",
         custom,
         aliases = "column width presets cycle sizes"
     )]
     pub preset_column_widths: Vec<f64>,
-    /// Keep a window's existing column width when it enters scrolling layout.
+    /// 窗口进入滚动布局时保留其现有列宽。
     #[serde(default = "yes")]
-    #[setting(label = "Preserve window sizes")]
+    #[setting(label = "保留窗口尺寸")]
     pub preserve_window_sizes: bool,
-    /// Fill the usable width when a workspace has only one scrolling column.
-    /// The column's stored width is restored when another column is added.
+    /// 工作区只有一个滚动列时填满可用宽度。
+    /// 添加另一列后恢复该列存储的宽度。
     #[serde(default)]
-    #[setting(label = "Expand single column", custom)]
+    #[setting(label = "扩展单列", custom)]
     pub expand_single_column: bool,
-    /// Minimum column width ratio allowed by resize commands.
+    /// 调整尺寸命令允许的最小列宽比例。
     #[serde(default = "default_scrolling_min_column_width_ratio")]
     #[setting(
-        label = "Minimum width",
+        label = "最小宽度",
         scale = 100.0,
         unit = "%",
         aliases = "minimum column width sizing percentages tiling"
     )]
     pub min_column_width_ratio: f64,
-    /// Maximum column width ratio allowed by resize commands.
+    /// 调整尺寸命令允许的最大列宽比例。
     #[serde(default = "default_scrolling_max_column_width_ratio")]
     #[setting(
-        label = "Maximum width",
+        label = "最大宽度",
         scale = 100.0,
         unit = "%",
         aliases = "maximum column width sizing percentages tiling"
     )]
     pub max_column_width_ratio: f64,
-    /// Sparse width overrides keyed by display UUID.
+    /// 按显示器 UUID 单独指定列宽，未指定项使用通用设置。
     #[serde(default)]
-    #[setting(label = "Display settings", custom)]
+    #[setting(label = "显示器设置", custom)]
     pub per_display: HashMap<String, ScrollingWidthOverride>,
-    /// Alignment for the focused column (left, center, right).
+    /// 焦点列的对齐方式：左侧、居中或右侧。
     #[serde(default)]
-    #[setting(label = "Alignment", choices)]
+    #[setting(label = "对齐方式", choices)]
     pub alignment: ScrollingAlignment,
-    /// Horizontal focus navigation behavior:
-    /// - niri: reveal only as needed based on navigation direction.
-    /// - anchored: always align focused column to `alignment`.
-    /// Gesture release pans freely in niri mode and snaps to alignment in anchored mode.
+    /// 水平焦点导航行为：
+    /// - niri：仅在需要时按导航方向显示。
+    /// - anchored：始终将焦点列对齐到 `alignment`。
+    /// niri 模式下手势释放可自由平移；anchored 模式会吸附到对齐位置。
     #[serde(default)]
-    #[setting(label = "Focus navigation", choices)]
+    #[setting(label = "焦点导航", choices)]
     pub focus_navigation_style: ScrollingFocusNavigationStyle,
-    /// Trackpad gestures for scrolling layout
+    /// 滚动布局的触控板手势。
     #[serde(default)]
     #[setting(ignore)]
     pub gestures: ScrollingGestureSettings,
@@ -1347,18 +1351,25 @@ pub struct ScrollingWidthOverride {
 #[serde(rename_all = "snake_case")]
 pub enum MasterStackSide {
     #[default]
+    #[setting(label = "左侧")]
     Left,
+    #[setting(label = "右侧")]
     Right,
+    #[setting(label = "上方")]
     Top,
+    #[setting(label = "下方")]
     Bottom,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum ScrollingAlignment {
+    #[setting(label = "左侧")]
     Left,
     #[default]
+    #[setting(label = "居中")]
     Center,
+    #[setting(label = "右侧")]
     Right,
 }
 
@@ -1366,7 +1377,9 @@ pub enum ScrollingAlignment {
 #[serde(rename_all = "snake_case")]
 pub enum ScrollingFocusNavigationStyle {
     #[default]
+    #[setting(label = "按需显示")]
     Niri,
+    #[setting(label = "固定对齐")]
     Anchored,
 }
 
@@ -1376,75 +1389,77 @@ pub struct MasterStackSettings {
     #[serde(flatten)]
     #[setting(ignore)]
     pub base: BaseLayoutSettings,
-    /// Fraction of space reserved for the master area (0.05..0.95)
+    /// 为主区域保留的空间比例，范围为 0.05 到 0.95。
     #[serde(default = "default_master_stack_ratio")]
-    #[setting(label = "Master width", custom)]
+    #[setting(label = "主区域宽度", custom)]
     pub master_ratio: f64,
-    /// Number of windows kept in the master area (>= 1)
+    /// 主区域保留的窗口数，至少为 1。
     #[serde(default = "default_master_stack_count")]
-    #[setting(label = "Master windows")]
+    #[setting(label = "主区域窗口数")]
     pub master_count: usize,
     #[serde(default)]
-    #[setting(label = "Master side", choices)]
+    #[setting(label = "主区域位置", choices)]
     pub master_side: MasterStackSide,
-    /// Where new windows are inserted when the master area is already full
+    /// 主区域已满时，新窗口的插入位置。
     #[serde(default = "default_master_stack_new_window_placement")]
-    #[setting(label = "New windows", choices)]
+    #[setting(label = "新窗口归属", choices)]
     pub new_window_placement: MasterStackNewWindowPlacement,
-    /// Orientation arrangement for the master area (override default derived from master_side)
+    /// 主区域的排列方向，覆盖根据主区域位置推导的默认方向。
     #[serde(default)]
-    #[setting(label = "Master arrangement", custom)]
+    #[setting(label = "主区域排列", custom)]
     pub master_arrangement: Option<crate::layout_engine::Orientation>,
-    /// Orientation arrangement for the stack area (override default derived from master_side)
+    /// 从区域的排列方向，覆盖根据主区域位置推导的默认方向。
     #[serde(default)]
-    #[setting(label = "Stack arrangement", custom)]
+    #[setting(label = "从区域排列", custom)]
     pub stack_arrangement: Option<crate::layout_engine::Orientation>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum MasterStackNewWindowPlacement {
+    #[setting(label = "主区域")]
     Master,
+    #[setting(label = "从区域")]
     Stack,
+    #[setting(label = "当前焦点区域")]
     Focused,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, ConfigSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ScrollingGestureSettings {
-    /// Enable continuous horizontal viewport gestures
+    /// 启用连续水平视口手势。
     #[serde(default)]
-    #[setting(order = 0)]
+    #[setting(label = "启用", order = 0)]
     pub enabled: bool,
-    /// Legacy value accepted for compatibility; scrolling animation controls gesture release.
+    /// 兼容旧配置保留；手势释放动画由滚动动画控制。
     #[serde(default, skip_serializing)]
     #[setting(ignore)]
     pub animate: Option<bool>,
-    /// Invert horizontal direction (swap left/right)
+    /// 反转水平方向，交换左侧与右侧。
     #[serde(default)]
-    #[setting(label = "Invert horizontal direction", order = 1)]
+    #[setting(label = "反转水平方向", order = 1)]
     pub invert_horizontal: bool,
-    /// Maximum absolute Y delta allowed for the gesture to count as horizontal
+    /// 将手势识别为水平轻扫时，允许的最大垂直偏移绝对值。
     #[serde(default = "default_swipe_vertical_tolerance")]
-    #[setting(order = 5)]
+    #[setting(label = "垂直容差", order = 5)]
     pub vertical_tolerance: f64,
-    /// Number of fingers required for scroll gesture
+    /// 滚动手势所需的手指数。
     #[serde(default = "default_swipe_fingers")]
-    #[setting(order = 2)]
+    #[setting(label = "手指数", order = 2)]
     pub fingers: usize,
-    /// Retained for config compatibility; continuous scrolling uses a small intent dead zone
+    /// 兼容旧配置保留；连续滚动使用较小的意图死区。
     #[deprecated(since = "0.6.3")]
     #[serde(default = "default_distance_pct")]
     #[setting(ignore)]
     pub distance_pct: f64,
-    /// If true, scrolling past the end of the strip will trigger a workspace switch
+    /// 滚动超过窗口条带末端时触发工作区切换。
     #[serde(default)]
-    #[setting(label = "Continue into workspace swipe", order = 3)]
+    #[setting(label = "延续为工作区轻扫", order = 3)]
     pub propagate_to_workspace_swipe: bool,
-    /// Edge travel in working-area widths required on release for one workspace switch.
-    /// Measured directly as a fraction of the working-area width.
+    /// 释放时触发一次工作区切换所需的边缘位移，按工作区宽度的比例计算。
     #[serde(default = "default_overscroll_threshold")]
-    #[setting(label = "Workspace switch threshold (%)", scale = 100.0, order = 6)]
+    #[setting(label = "工作区切换阈值 (%)", scale = 100.0, order = 6)]
     pub workspace_switch_threshold: f64,
 }
 
@@ -1467,9 +1482,13 @@ impl Default for ScrollingGestureSettings {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum StackDefaultOrientation {
+    #[setting(label = "与父布局垂直")]
     Perpendicular,
+    #[setting(label = "与父布局相同")]
     Same,
+    #[setting(label = "水平")]
     Horizontal,
+    #[setting(label = "垂直")]
     Vertical,
 }
 
@@ -1479,21 +1498,20 @@ pub struct StackSettings {
     #[serde(flatten)]
     #[setting(ignore)]
     pub base: BaseLayoutSettings,
-    /// Stack offset - how much each stacked window is offset (in pixels)
-    /// With the enhanced stacking system, this creates meaningful visible edges
-    /// for each window in the stack while the focused window remains fully visible.
-    /// Recommended values: 30-50 pixels for good visibility.
+    /// 堆叠偏移：每个堆叠窗口的偏移量（单位：点）。
+    /// 使用增强堆叠系统时，这能为堆叠中的每个窗口形成可见边缘，
+    /// 同时保持焦点窗口完整可见。建议使用 30–50 点以获得良好辨识度。
     #[serde(default = "default_stack_offset")]
-    #[setting(label = "Window offset (points)", aliases = "stack offset overlap")]
+    #[setting(label = "窗口偏移 (点)", aliases = "stack offset overlap")]
     pub stack_offset: f64,
 
-    /// Default orientation behavior when stacking windows.
-    /// Options:
-    /// - "perpendicular" (default): choose the perpendicular orientation to the parent layout
-    /// - "same": use the same orientation as the parent layout
-    /// - "horizontal"/"vertical": explicitly use a specific orientation
+    /// 堆叠窗口时的默认方向行为。
+    /// 可选值：
+    /// - "perpendicular"（默认）：选择与父布局垂直的方向
+    /// - "same"：使用与父布局相同的方向
+    /// - "horizontal"/"vertical"：显式指定方向
     #[serde(default = "default_stack_orientation")]
-    #[setting(label = "Orientation", choices)]
+    #[setting(label = "方向", choices)]
     pub default_orientation: StackDefaultOrientation,
 }
 
@@ -1512,16 +1530,16 @@ pub struct GapSettings {
 #[serde(deny_unknown_fields)]
 pub struct OuterGaps {
     #[serde(default)]
-    #[setting(label = "Top", custom)]
+    #[setting(label = "上方", custom)]
     pub top: f64,
     #[serde(default)]
-    #[setting(label = "Left", custom)]
+    #[setting(label = "左侧", custom)]
     pub left: f64,
     #[serde(default)]
-    #[setting(label = "Bottom", custom)]
+    #[setting(label = "下方", custom)]
     pub bottom: f64,
     #[serde(default)]
-    #[setting(label = "Right", custom)]
+    #[setting(label = "右侧", custom)]
     pub right: f64,
 }
 
@@ -1529,10 +1547,10 @@ pub struct OuterGaps {
 #[serde(deny_unknown_fields)]
 pub struct InnerGaps {
     #[serde(default)]
-    #[setting(label = "Horizontal", custom)]
+    #[setting(label = "水平", custom)]
     pub horizontal: f64,
     #[serde(default)]
-    #[setting(label = "Vertical", custom)]
+    #[setting(label = "垂直", custom)]
     pub vertical: f64,
 }
 
@@ -1865,9 +1883,12 @@ fn default_overscroll_threshold() -> f64 { 0.55 }
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy, Default, ConfigEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum HapticPattern {
+    #[setting(label = "通用")]
     Generic,
+    #[setting(label = "对齐")]
     Alignment,
     #[default]
+    #[setting(label = "级别变化")]
     LevelChange,
 }
 

@@ -249,7 +249,7 @@ impl FormBuilder {
                     );
                     input.set_items(choices.iter().map(|choice| choice.0));
                     if let FieldValue::Choice(index) = read(get(defaults())) {
-                        input.set_item_badge(index, Some("Default"));
+                        input.set_item_badge(index, Some("默认"));
                     }
                     self.sync_when(
                         &input,

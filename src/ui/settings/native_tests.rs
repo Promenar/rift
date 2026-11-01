@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use cgs::controls::SheetActions;
 use cgs::layout::VStack;
 use cgs::settings::Section;
@@ -53,7 +54,7 @@ fn navigation_row(table: &NSTableView, title: &str) -> usize {
 
 /// A layout tile, whose accessible name is its title, plus “, default” on the default.
 fn tile(view: &NSView, title: &str) -> Option<Retained<NSButton>> {
-    named::<NSButton>(view, title).or_else(|| named::<NSButton>(view, &format!("{title}, default")))
+    named::<NSButton>(view, title).or_else(|| named::<NSButton>(view, &format!("{title}, 默认")))
 }
 
 /// Choose `index` in a native popup as a click would.
@@ -145,25 +146,25 @@ pub fn run(ui: Ui) {
         let search = find::<objc2_app_kit::NSSearchField>(&root).unwrap();
         change_text(&search, "focus follows pointer");
         assert!(
-            named::<NSTableView>(&root, "Settings categories").is_none(),
+            named::<NSTableView>(&root, "设置类别").is_none(),
             "search replaces the sidebar"
         );
         change_text(&search, "   ");
         assert!(
-            named::<NSTableView>(&root, "Settings categories").is_some(),
+            named::<NSTableView>(&root, "设置类别").is_some(),
             "clearing search restores navigation"
         );
         change_text(&search, "this setting does not exist");
-        assert!(named::<NSTableView>(&root, "Settings categories").is_none());
+        assert!(named::<NSTableView>(&root, "设置类别").is_none());
         change_text(&search, "gaps");
         assert!(
-            named::<NSTableView>(&root, "Settings categories").is_none(),
+            named::<NSTableView>(&root, "设置类别").is_none(),
             "search works after an empty result"
         );
         change_text(&search, "");
-        let sidebar = named::<NSTableView>(&root, "Settings categories").unwrap();
+        let sidebar = named::<NSTableView>(&root, "设置类别").unwrap();
         sidebar.selectRowIndexes_byExtendingSelection(
-            &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&sidebar, "Layouts")),
+            &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&sidebar, "布局")),
             false,
         );
         let toolbar = settings.window.toolbar().ns_toolbar();
@@ -220,7 +221,7 @@ pub fn run(ui: Ui) {
             "history ends at the initial page"
         );
         sidebar.selectRowIndexes_byExtendingSelection(
-            &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&sidebar, "Keyboard")),
+            &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&sidebar, "键盘")),
             false,
         );
         assert_eq!(settings.router.current(), Category::Keyboard);
@@ -231,7 +232,7 @@ pub fn run(ui: Ui) {
         press(&back);
         assert_eq!(settings.router.current(), Category::General);
         sidebar.selectRowIndexes_byExtendingSelection(
-            &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&sidebar, "General")),
+            &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&sidebar, "通用")),
             false,
         );
         drop(sidebar);
@@ -314,7 +315,7 @@ pub fn run(ui: Ui) {
             let before = settings.model().source.borrow().as_ref().clone();
             let root = settings.router.layouts().ns_view();
             assert!(
-                named::<NSButton>(root, "Layouts help").is_some(),
+                named::<NSButton>(root, "布局帮助").is_some(),
                 "help sits with the page content, not in the toolbar"
             );
             settings.window.ns_window().setContentSize(CGSize::new(880.0, 660.0));
@@ -324,8 +325,10 @@ pub fn run(ui: Ui) {
             }
             let window = settings.window.ns_window();
             let content = window.contentView().unwrap();
-            // Switching layouts never resizes the window, even at its smallest useful size.
-            for size in [CGSize::new(700.0, 420.0), CGSize::new(760.0, 500.0)] {
+            // Switching layouts never resizes the window. Upstream 0.7.2 needs about
+            // 704pt at its narrowest; the Chinese labels need about 713pt, so 720pt is
+            // the smallest width that still exercises the compact layout.
+            for size in [CGSize::new(720.0, 420.0), CGSize::new(760.0, 500.0)] {
                 window.setContentSize(size);
                 content.layoutSubtreeIfNeeded();
                 let frame = window.frame();
@@ -365,10 +368,10 @@ pub fn run(ui: Ui) {
                 }
                 cached_instances = Some(count);
             }
-            let spacing = named::<NSButton>(root, "Spacing").unwrap();
-            let displays = named::<NSButton>(root, "Display overrides").unwrap();
+            let spacing = named::<NSButton>(root, "间距").unwrap();
+            let displays = named::<NSButton>(root, "显示器覆盖设置").unwrap();
             assert!(
-                named::<NSControl>(root, "Screen edges").is_none(),
+                named::<NSControl>(root, "屏幕边缘").is_none(),
                 "spacing starts collapsed and lazy"
             );
             root.layoutSubtreeIfNeeded();
@@ -403,7 +406,7 @@ pub fn run(ui: Ui) {
                 frame,
                 "expanding spacing preserves window size"
             );
-            let gap = named::<NSControl>(root, "Screen edges").unwrap();
+            let gap = named::<NSControl>(root, "屏幕边缘").unwrap();
             unsafe {
                 displays.performClick(None);
             }
@@ -423,14 +426,14 @@ pub fn run(ui: Ui) {
                 displays.performClick(None);
             }
             assert!(
-                named::<NSControl>(root, "Screen edges").is_none(),
+                named::<NSControl>(root, "屏幕边缘").is_none(),
                 "collapsed editors hide"
             );
             unsafe {
                 spacing.performClick(None);
             }
             assert!(
-                std::ptr::eq(&*gap, &*named::<NSControl>(root, "Screen edges").unwrap()),
+                std::ptr::eq(&*gap, &*named::<NSControl>(root, "屏幕边缘").unwrap()),
                 "reopening reuses the editor"
             );
             assert_eq!(displays.state(), 0);
@@ -439,15 +442,15 @@ pub fn run(ui: Ui) {
                 pending.try_recv().is_err(),
                 "expansion never writes configuration"
             );
-            for query in ["Master width", "Screen edges", "Display overrides"] {
+            for query in ["主区域宽度", "屏幕边缘", "显示器覆盖设置"] {
                 let entry =
                     search::results(query).into_iter().find(|entry| entry.title == query).unwrap();
                 settings.router.open_search(entry);
                 assert!(
-                    named::<NSControl>(root, "Master width").is_some(),
+                    named::<NSControl>(root, "主区域宽度").is_some(),
                     "shared settings remain separate from the visible layout inspector"
                 );
-                if query == "Master width" || query == "Screen edges" {
+                if query == "主区域宽度" || query == "屏幕边缘" {
                     let focused = settings.window.ns_window().firstResponder().unwrap();
                     assert_eq!(
                         focused
@@ -461,19 +464,19 @@ pub fn run(ui: Ui) {
                 }
                 assert_eq!(settings.router.current(), Category::Layouts);
                 let sidebar =
-                    named::<NSTableView>(&root_window(&settings), "Settings categories").unwrap();
+                    named::<NSTableView>(&root_window(&settings), "设置类别").unwrap();
                 assert_eq!(
                     sidebar.selectedRow(),
-                    navigation_row(&sidebar, "Layouts") as isize
+                    navigation_row(&sidebar, "布局") as isize
                 );
             }
             settings.router.layouts().select_target(layouts::Target::Layout(
                 crate::common::config::LayoutMode::Traditional,
             ));
-            let position = named::<NSPopUpButton>(root, "New window position").unwrap();
+            let position = named::<NSPopUpButton>(root, "新窗口位置").unwrap();
             assert_eq!(
                 position.titleOfSelectedItem().unwrap().to_string(),
-                "Use shared setting",
+                "使用共享设置",
                 "following the shared setting is an explicit choice"
             );
             assert_eq!(
@@ -485,15 +488,15 @@ pub fn run(ui: Ui) {
                     .stringValue()
                     .unwrap()
                     .to_string(),
-                "Shared",
+                "共享",
                 "the menu marks the shared value"
             );
             assert!(
-                named::<NSButton>(root, "Traditional, default").is_some()
-                    && named::<NSButton>(root, "Traditional").is_none(),
+                named::<NSButton>(root, "传统平铺, 默认").is_some()
+                    && named::<NSButton>(root, "传统平铺").is_none(),
                 "the default tile says so to assistive apps"
             );
-            let toggle = named::<NSSwitch>(root, "Keep windows equally sized").unwrap();
+            let toggle = named::<NSSwitch>(root, "保持窗口等大").unwrap();
             let original_state = toggle.state();
             let pending_state = if original_state == 0 { 1 } else { 0 };
             toggle.setState(pending_state);
@@ -534,8 +537,8 @@ pub fn run(ui: Ui) {
                 .router
                 .layouts()
                 .select_target(layouts::Target::Layout(crate::common::config::LayoutMode::Bsp));
-            let shape = named::<NSPopUpButton>(root, "Single window aspect ratio").unwrap();
-            assert!(named::<objc2_app_kit::NSTextField>(root, "Width-to-height ratio").is_none());
+            let shape = named::<NSPopUpButton>(root, "单窗口宽高比").unwrap();
+            assert!(named::<objc2_app_kit::NSTextField>(root, "宽高比").is_none());
             choose(&shape, 2);
             let request = pending.try_recv().expect("choosing Custom seeds a ratio");
             let Action::Edit(edit) = request.action else {
@@ -549,14 +552,14 @@ pub fn run(ui: Ui) {
             );
             settings.synchronize(custom.clone());
             // Switching must commit an actual AppKit field editor before hiding its client.
-            let ratio = named::<objc2_app_kit::NSTextField>(root, "Width-to-height ratio").unwrap();
+            let ratio = named::<objc2_app_kit::NSTextField>(root, "宽高比").unwrap();
             assert!(settings.window.ns_window().makeFirstResponder(Some(&ratio)));
             ratio
                 .currentEditor()
                 .unwrap()
                 .setString(&objc2_foundation::NSString::from_str("1.5"));
             unsafe {
-                tile(root, "Traditional").unwrap().performClick(None);
+                tile(root, "传统平铺").unwrap().performClick(None);
             }
             let request = pending.try_recv().expect("switch commits the field’s source edit");
             let Action::Edit(edit) = request.action else {
@@ -568,11 +571,11 @@ pub fn run(ui: Ui) {
             assert!(ratio.currentEditor().is_none());
             settings.synchronize(before.clone());
             unsafe {
-                tile(root, "Scrolling").unwrap().performClick(None);
+                tile(root, "滚动布局").unwrap().performClick(None);
             }
             // The default is chosen in the toolbar, separately from the edited layout.
             let control = settings.router.layouts().default_control();
-            let default = named::<NSPopUpButton>(control.ns_view(), "Default layout").unwrap();
+            let default = named::<NSPopUpButton>(control.ns_view(), "默认布局").unwrap();
             choose(
                 &default,
                 crate::common::config::LayoutMode::Scrolling.config_choice_index() as isize,
@@ -588,9 +591,9 @@ pub fn run(ui: Ui) {
                 crate::common::config::LayoutMode::Scrolling
             );
             settings.synchronize(external.clone());
-            let scrolling = named::<NSButton>(root, "Scrolling, default").unwrap();
+            let scrolling = named::<NSButton>(root, "滚动布局, 默认").unwrap();
             assert_eq!(scrolling.state(), 1, "making a layout default keeps editing it");
-            assert_eq!(tile(root, "Traditional").unwrap().state(), 0);
+            assert_eq!(tile(root, "传统平铺").unwrap().state(), 0);
             external.settings.layout.mode = before.settings.layout.mode;
             assert!(
                 external == before,
@@ -599,7 +602,7 @@ pub fn run(ui: Ui) {
             settings.synchronize(before.clone());
             assert_eq!(
                 default.titleOfSelectedItem().unwrap().to_string(),
-                "Traditional",
+                "传统平铺",
                 "external changes update the default popup"
             );
             // Reset only the inspected algorithm, preserving defaults and display overrides.
@@ -614,7 +617,7 @@ pub fn run(ui: Ui) {
             );
             settings.synchronize(customized.clone());
             assert!(
-                named::<NSPopUpButton>(root, "Scrolling actions").is_some(),
+                named::<NSPopUpButton>(root, "滚动布局操作").is_some(),
                 "restoring defaults lives in the edited layout’s actions menu"
             );
             layouts::restore(
@@ -639,12 +642,12 @@ pub fn run(ui: Ui) {
             // Width presets are one chip per percentage, plus an add button.
             for title in ["33.33%", "50%", "66.67%"] {
                 assert!(
-                    named::<NSButton>(root, &format!("Width preset {title}")).is_some(),
+                    named::<NSButton>(root, &format!("预设宽度 {title}")).is_some(),
                     "each preset is its own control"
                 );
-                assert!(named::<NSButton>(root, &format!("Remove {title}")).is_some());
+                assert!(named::<NSButton>(root, &format!("移除{title}")).is_some());
             }
-            assert!(named::<NSButton>(root, "Add width preset").is_some());
+            assert!(named::<NSButton>(root, "添加 预设宽度").is_some());
             settings.synchronize(before);
         });
         // A normal collection row's first click opens its editor without changing configuration.
@@ -805,7 +808,7 @@ pub fn run(ui: Ui) {
                 .find_map(|item| item.downcast::<objc2_app_kit::NSSearchToolbarItem>().ok())
                 .unwrap()
                 .searchField();
-            change_text(&search, "fullscreen");
+            change_text(&search, "全屏");
             let table = find::<NSTableView>(page.view.ns_view()).unwrap();
             assert_eq!(table.numberOfRows(), 1);
             table.selectRowIndexes_byExtendingSelection(
@@ -818,7 +821,7 @@ pub fn run(ui: Ui) {
             let action = find::<NSPopUpButton>(&window.contentView().unwrap()).unwrap();
             assert_eq!(
                 action.titleOfSelectedItem().unwrap().to_string(),
-                "Window · Fullscreen"
+                "窗口 · 切换全屏"
             );
             settings.router.model.close_sheet();
             settings.window.toolbar().set_page_controls(&ui, None);
@@ -894,7 +897,7 @@ pub fn run(ui: Ui) {
             settings.router.model.replace_source(source.clone());
             page.synchronize(&settings.router.model);
             let mode =
-                named::<NSSegmentedControl>(page.view.ns_view(), "Spacing controls").unwrap();
+                named::<NSSegmentedControl>(page.view.ns_view(), "间距控制").unwrap();
             mode.setSelectedSegment(1);
             assert!(unsafe { mode.sendAction_to(mode.action(), mode.target().as_deref()) });
             assert_eq!(
@@ -902,8 +905,8 @@ pub fn run(ui: Ui) {
                 0,
                 "Custom uses numerical fields, not sliders"
             );
-            let names = pages::EDGES.map(|edge| format!("Screen edges, {edge}"));
-            let axes = pages::AXES.map(|axis| format!("Between windows, {axis}"));
+            let names = pages::EDGES.map(|edge| format!("屏幕边缘, {edge}"));
+            let axes = pages::AXES.map(|axis| format!("窗口之间, {axis}"));
             for name in names.iter().chain(&axes) {
                 assert!(
                     named::<objc2_app_kit::NSTextField>(page.view.ns_view(), name)
@@ -911,7 +914,7 @@ pub fn run(ui: Ui) {
                         .isEditable()
                 );
             }
-            let top = named::<objc2_app_kit::NSTextField>(page.view.ns_view(), "Screen edges, Top")
+            let top = named::<objc2_app_kit::NSTextField>(page.view.ns_view(), "屏幕边缘, 上")
                 .unwrap();
             settings.router.host.set_cached_page(page.view.clone());
             assert!(settings.window.ns_window().makeFirstResponder(Some(&top)));
@@ -975,14 +978,14 @@ pub fn run(ui: Ui) {
             settings.router.host.set_cached_page(page.view.clone());
             let view = page.view.ns_view();
             let window = settings.window.ns_window();
-            let top = named::<NSTextField>(view, "Screen edges, Top").unwrap();
+            let top = named::<NSTextField>(view, "屏幕边缘, 上").unwrap();
             assert_eq!(
                 top.stringValue().to_string(),
                 "",
                 "inherited values leave the field empty"
             );
             assert_eq!(top.placeholderString().unwrap().to_string(), "5");
-            assert!(named::<NSButton>(view, "Use Shared for screen edges").is_none());
+            assert!(named::<NSButton>(view, "屏幕边缘：使用共享值").is_none());
             let type_into = |pending: &mut tokio::sync::mpsc::UnboundedReceiver<Request>,
                              field: &NSTextField,
                              text: &str| {
@@ -1007,13 +1010,13 @@ pub fn run(ui: Ui) {
             assert_eq!(custom.outer.as_ref().map(|o| (o.top, o.right)), Some((9.0, 5.0)));
             assert!(custom.inner.is_none(), "between-window spacing still inherits");
             assert_eq!(
-                named::<NSTextField>(view, "Screen edges, Right")
+                named::<NSTextField>(view, "屏幕边缘, 右")
                     .unwrap()
                     .stringValue()
                     .to_string(),
                 "5"
             );
-            let width = named::<NSTextField>(view, "Default column width").unwrap();
+            let width = named::<NSTextField>(view, "默认列宽").unwrap();
             type_into(&mut pending, &width, "50");
             let widths = current().settings.layout.scrolling.per_display["disp-a"].clone();
             assert_eq!(widths.column_width_ratio, Some(0.5));
@@ -1027,7 +1030,7 @@ pub fn run(ui: Ui) {
                 "clearing the only override removes the display’s entry"
             );
             unsafe {
-                named::<NSButton>(view, "Use Shared for screen edges")
+                named::<NSButton>(view, "屏幕边缘：使用共享值")
                     .unwrap()
                     .performClick(None);
             }
@@ -1044,18 +1047,18 @@ pub fn run(ui: Ui) {
             settings.router.model.replace_source(source.clone());
             page.synchronize(&settings.router.model);
             // Add Display… prepares a display that isn’t connected, without writing anything.
-            let popup = named::<NSPopUpButton>(view, "Display").unwrap();
+            let popup = named::<NSPopUpButton>(view, "显示器").unwrap();
             choose(&popup, popup.numberOfItems() - 1);
             assert_eq!(popup.titleOfSelectedItem().unwrap().to_string(), "Display A");
-            named::<NSTextField>(view, "Display UUID")
+            named::<NSTextField>(view, "显示器 UUID")
                 .unwrap()
                 .setStringValue(&objc2_foundation::NSString::from_str("manual-display"));
             unsafe {
-                named::<NSButton>(view, "Add").unwrap().performClick(None);
+                named::<NSButton>(view, "添加").unwrap().performClick(None);
             }
             assert_eq!(
                 popup.titleOfSelectedItem().unwrap().to_string(),
-                "Display manual-d…"
+                "显示器 manual-d…"
             );
             assert!(
                 pending.try_recv().is_err(),
@@ -1063,7 +1066,7 @@ pub fn run(ui: Ui) {
             );
             type_into(
                 &mut pending,
-                &named::<NSTextField>(view, "Screen edges, Left").unwrap(),
+                &named::<NSTextField>(view, "屏幕边缘, 左").unwrap(),
                 "3",
             );
             assert!(current().settings.layout.gaps.per_display.contains_key("manual-display"));
@@ -1076,11 +1079,11 @@ pub fn run(ui: Ui) {
             "Position",
             vec![
                 (
-                    "Next to selection",
+                    "所选窗口旁边",
                     crate::common::config::WindowInsertionPoint::NextToSelection,
                 ),
                 (
-                    "End of layout",
+                    "布局末尾",
                     crate::common::config::WindowInsertionPoint::EndOfTree,
                 ),
             ],
@@ -1100,7 +1103,7 @@ pub fn run(ui: Ui) {
         page.synchronize(&settings.router.model);
         assert_eq!(
             popup.titleOfSelectedItem().unwrap().to_string(),
-            "Next to selection"
+            "所选窗口旁边"
         );
         assert_eq!(popup.numberOfItems(), 2);
         assert_eq!(
@@ -1112,7 +1115,7 @@ pub fn run(ui: Ui) {
                 .stringValue()
                 .unwrap()
                 .to_string(),
-            "Default"
+            "默认"
         );
         assert!(popup.itemAtIndex(1).unwrap().badge().is_none());
         for (index, expected) in [
@@ -1140,7 +1143,7 @@ pub fn run(ui: Ui) {
             Some(crate::common::config::WindowInsertionPoint::EndOfTree);
         settings.router.model.replace_source(source);
         page.synchronize(&settings.router.model);
-        assert_eq!(popup.titleOfSelectedItem().unwrap().to_string(), "End of layout");
+        assert_eq!(popup.titleOfSelectedItem().unwrap().to_string(), "布局末尾");
         assert!(popup.itemAtIndex(0).unwrap().badge().is_none());
         assert_eq!(
             popup
@@ -1151,7 +1154,7 @@ pub fn run(ui: Ui) {
                 .stringValue()
                 .unwrap()
                 .to_string(),
-            "Default"
+            "默认"
         );
         assert!(
             pending.try_recv().is_err(),
@@ -1205,29 +1208,29 @@ fn interface_controls(
         assert!(unsafe { control.sendAction_to(control.action(), control.target().as_deref()) });
     };
     settings.router.navigate(Category::MenuBar);
-    toggle("Show menu bar indicator", true);
+    toggle("显示菜单栏指示器", true);
     commit(&mut source, pending);
-    let mode = named::<NSPopUpButton>(&root, "Workspaces to show").unwrap();
+    let mode = named::<NSPopUpButton>(&root, "显示的工作区").unwrap();
     assert!(mode.isEnabled());
     choose(&mode, 1);
     commit(&mut source, pending);
     assert_eq!(source.settings.ui.menu_bar.mode, MenuBarDisplayMode::Active);
-    toggle("Show menu bar indicator", false);
+    toggle("显示菜单栏指示器", false);
     commit(&mut source, pending);
     assert!(!mode.isEnabled());
 
     settings.router.navigate(Category::Overview);
-    assert!(named::<NSButton>(&root, "Check Screen Recording Access…").is_some());
-    toggle("Enabled", true);
+    assert!(named::<NSButton>(&root, "检查屏幕录制权限…").is_some());
+    toggle("启用", true);
     commit(&mut source, pending);
-    toggle("Window previews", false);
+    toggle("窗口预览", false);
     commit(&mut source, pending);
     assert!(!source.settings.ui.mission_control.window_previews);
-    toggle("Fade transitions", true);
+    toggle("淡入淡出", true);
     commit(&mut source, pending);
-    let duration = named::<NSSlider>(&root, "Fade duration").unwrap();
+    let duration = named::<NSSlider>(&root, "淡入淡出时长").unwrap();
     assert!(duration.isEnabled());
-    toggle("Fade transitions", false);
+    toggle("淡入淡出", false);
     commit(&mut source, pending);
     assert!(!duration.isEnabled());
 
@@ -1238,23 +1241,25 @@ fn interface_controls(
         windows,
         "the actual tab component embeds without allocating any preview windows"
     );
-    toggle("Enabled", true);
+    toggle("启用", true);
     commit(&mut source, pending);
-    let placement = named::<NSPopUpButton>(&root, "Horizontal placement").unwrap();
-    choose(&placement, 1);
+    let placement = named::<objc2_app_kit::NSSegmentedControl>(&root, "水平堆叠时的位置").unwrap();
+    placement.setSelectedSegment(1);
+    assert!(unsafe { placement.sendAction_to(placement.action(), placement.target().as_deref()) });
     commit(&mut source, pending);
     assert_eq!(
         source.settings.ui.stack_line.horiz_placement,
         HorizontalPlacement::Bottom
     );
-    let vertical = named::<NSPopUpButton>(&root, "Vertical placement").unwrap();
-    choose(&vertical, 1);
+    let vertical = named::<objc2_app_kit::NSSegmentedControl>(&root, "垂直堆叠时的位置").unwrap();
+    vertical.setSelectedSegment(1);
+    assert!(unsafe { vertical.sendAction_to(vertical.action(), vertical.target().as_deref()) });
     commit(&mut source, pending);
     assert_eq!(
         source.settings.ui.stack_line.vert_placement,
         crate::common::config::VerticalPlacement::Right
     );
-    for (title, value) in [("Thickness", 44.0), ("Spacing", 12.0)] {
+    for (title, value) in [("厚度", 44.0), ("间距", 12.0)] {
         let slider = named::<NSSlider>(&root, title).unwrap();
         slider.setDoubleValue(value);
         assert!(unsafe { slider.sendAction_to(slider.action(), slider.target().as_deref()) });
@@ -1263,7 +1268,7 @@ fn interface_controls(
     assert_eq!(source.settings.ui.stack_line.thickness, 44.0);
     assert_eq!(source.settings.ui.stack_line.spacing, 12.0);
     root.layoutSubtreeIfNeeded();
-    let tab = named::<NSButton>(&root, "Terminal").unwrap();
+    let tab = named::<NSButton>(&root, "终端").unwrap();
     unsafe {
         tab.performClick(None);
     }
@@ -1278,8 +1283,8 @@ fn interface_controls(
     );
     // A failed save must discard the transient slider preview, even with no new
     // source revision arriving from ConfigActor.
-    let bar = named::<NSView>(&root, "Horizontal stack example").unwrap();
-    let thickness = named::<NSSlider>(&root, "Thickness").unwrap();
+    let bar = named::<NSView>(&root, "水平堆叠示例").unwrap();
+    let thickness = named::<NSSlider>(&root, "厚度").unwrap();
     thickness.setDoubleValue(48.0);
     assert!(unsafe { thickness.sendAction_to(thickness.action(), thickness.target().as_deref()) });
     root.layoutSubtreeIfNeeded();
@@ -1288,15 +1293,15 @@ fn interface_controls(
     (rejected.finish)(Err("The configuration could not be saved.".into()));
     root.layoutSubtreeIfNeeded();
     assert_eq!(bar.frame().size.height, source.settings.ui.stack_line.thickness);
-    let reset = named::<NSButton>(&root, "Reset preview").unwrap();
+    let reset = named::<NSButton>(&root, "重置预览").unwrap();
     unsafe {
         reset.performClick(None);
     }
     assert_eq!(tab.state(), 0, "reset restores the first example window");
-    toggle("Enabled", false);
+    toggle("启用", false);
     commit(&mut source, pending);
     assert!(!placement.isEnabled());
-    assert!(named::<NSButton>(&root, "Terminal").is_none());
+    assert!(named::<NSButton>(&root, "终端").is_none());
     // Use the real configuration document serializer/parser, not a preview state.
     let mut document = ConfigDocument::default();
     document
@@ -1336,14 +1341,14 @@ pub fn run_about(ui: Ui) {
             .unwrap()
             .view
             .clone();
-        let button = named::<NSButton>(page.ns_view(), "Check for Updates…").unwrap();
-        let status = named::<NSTextField>(page.ns_view(), "Update status").unwrap();
-        assert_eq!(status.stringValue().to_string(), "Not checked yet");
+        let button = named::<NSButton>(page.ns_view(), "检查更新…").unwrap();
+        let status = named::<NSTextField>(page.ns_view(), "更新状态").unwrap();
+        assert_eq!(status.stringValue().to_string(), "尚未检查");
         for (result, expected) in [
-            (Ok(updates::Release::Current), "Rift is up to date."),
+            (Ok(updates::Release::Current), "Rift 已是最新版本。"),
             (
                 Ok(updates::Release::Available("0.7.0".into())),
-                "Version 0.7.0 is available.",
+                "版本 0.7.0 已可用。",
             ),
             (
                 Err("Couldn’t connect. Try again.".into()),
@@ -1352,7 +1357,7 @@ pub fn run_about(ui: Ui) {
         ] {
             assert!(unsafe { button.sendAction_to(button.action(), button.target().as_deref()) });
             assert!(!button.isEnabled(), "one check at a time");
-            assert_eq!(status.stringValue().to_string(), "Checking for updates…");
+            assert_eq!(status.stringValue().to_string(), "正在检查更新…");
             let request = pending.try_recv().expect("a user-initiated update request");
             let Action::CheckUpdates(done) = request.action else {
                 panic!("update action")
@@ -1451,8 +1456,8 @@ pub fn run_lifecycle(ui: Ui) {
                 .view
                 .clone();
             let check =
-                named::<objc2_app_kit::NSButton>(about.ns_view(), "Check for Updates…").unwrap();
-            assert_eq!(check.title().to_string(), "Check for Updates…");
+                named::<objc2_app_kit::NSButton>(about.ns_view(), "检查更新…").unwrap();
+            assert_eq!(check.title().to_string(), "检查更新…");
             assert!(unsafe { check.sendAction_to(check.action(), check.target().as_deref()) });
             completions.push(pending.try_recv().unwrap());
             // Leave discovery and update completions pending and a sheet open during teardown.
@@ -1553,7 +1558,7 @@ fn late_runtime_populates_picker(
 ) {
     fn add_button(view: &NSView) -> Option<Retained<objc2_app_kit::NSButton>> {
         if let Some(button) = view.downcast_ref::<objc2_app_kit::NSButton>()
-            && button.title().to_string() == "Add"
+            && button.title().to_string() == "添加"
         {
             return Some(button.retain());
         }
@@ -1789,7 +1794,7 @@ pub fn render(
         sheet_window.setAppearance(window.appearance().as_deref());
         let view = sheet_window.contentView().unwrap();
         if scope == Some(23) {
-            let add = named::<NSButton>(&view, "Add Display Preference").unwrap();
+            let add = named::<NSButton>(&view, "添加显示器偏好").unwrap();
             let menu = add.menu().unwrap();
             menu.performActionForItemAtIndex(menu.numberOfItems() - 1);
         }
@@ -1839,12 +1844,12 @@ pub fn render(
         "the native content must fit the requested viewport width"
     );
     if small {
-        let sidebar = named::<NSTableView>(&content, "Settings categories").unwrap();
+        let sidebar = named::<NSTableView>(&content, "设置类别").unwrap();
         let current = settings.router.current().title();
         sidebar.scrollRowToVisible(navigation_row(&sidebar, current) as isize);
     }
     if page == Some(Category::About.index()) && matches!(scope, Some(14 | 15)) {
-        let emblem = named::<NSButton>(&content, "Rearrange windows").unwrap();
+        let emblem = named::<NSButton>(&content, "重新排列窗口").unwrap();
         for _ in 0..scope.unwrap() - 13 {
             assert!(unsafe { emblem.sendAction_to(emblem.action(), emblem.target().as_deref()) });
         }
@@ -1853,8 +1858,8 @@ pub fn render(
         content.layoutSubtreeIfNeeded();
     }
     let card = match scope {
-        Some(7) => Some("Spacing"),
-        Some(8) => Some("Display overrides"),
+        Some(7) => Some("间距"),
+        Some(8) => Some("显示器覆盖设置"),
         _ => None,
     };
     let spacing_card = if let Some(card) = card {

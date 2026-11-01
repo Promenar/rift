@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 // many ideas for how this works were taken from https://github.com/xiamaz/YabaiIndicator
 use std::borrow::Cow;
 #[cfg(test)]
@@ -578,12 +579,12 @@ fn parse_layout_mode(layout_mode: &str) -> Option<LayoutMode> {
 
 fn layout_title(mode: &LayoutMode) -> &'static str {
     match mode {
-        LayoutMode::Traditional => "Traditional",
-        LayoutMode::Bsp => "BSP",
-        LayoutMode::Floating => "Floating",
-        LayoutMode::Stack => "Stack",
-        LayoutMode::MasterStack => "Master Stack",
-        LayoutMode::Scrolling => "Scrolling",
+        LayoutMode::Traditional => "传统平铺",
+        LayoutMode::Bsp => "二分平铺",
+        LayoutMode::Floating => "浮动",
+        LayoutMode::Stack => "堆叠",
+        LayoutMode::MasterStack => "主从布局",
+        LayoutMode::Scrolling => "滚动布局",
     }
 }
 
@@ -658,7 +659,7 @@ fn set_menu_item_hotkey(item: &NSMenuItem, hotkey: Option<&Hotkey>) {
 
 fn workspace_menu_title(workspace: &Workspace) -> String {
     if workspace.name.is_empty() {
-        format!("Workspace {}", workspace.index + 1)
+        format!("工作区 {}", workspace.index + 1)
     } else {
         format!("{} ({})", workspace.name, workspace.index + 1)
     }
@@ -674,7 +675,7 @@ fn rebuild_restore_menu(
     picker_action: MenuCallback,
 ) {
     menu.clear();
-    add_action_item(menu, mtm, handler, "Master Layout", master_action);
+    add_action_item(menu, mtm, handler, "主布局快照", master_action);
 
     if !files.is_empty() {
         add_separator(menu);
@@ -685,7 +686,7 @@ fn rebuild_restore_menu(
     }
 
     add_separator(menu);
-    add_action_item(menu, mtm, handler, "Choose Layout File…", picker_action);
+    add_action_item(menu, mtm, handler, "选择布局文件…", picker_action);
 }
 
 fn layout_file_title(path: &Path) -> Option<String> {
@@ -750,31 +751,31 @@ fn build_static_menu(mtm: MainThreadMarker, handler: &Rc<MenuActionHandler>) -> 
         &menu,
         mtm,
         handler,
-        "Tiling",
+        "平铺管理",
         MenuActionHandler::on_toggle_space_activation,
     );
     set_menu_item_checked(&tiling_item, false);
     add_separator(&menu);
 
-    let (workspace_item, workspace_submenu) = add_submenu(&menu, mtm, "Workspace");
+    let (workspace_item, workspace_submenu) = add_submenu(&menu, mtm, "工作区");
     let next_workspace_item = add_action_item(
         &workspace_submenu,
         mtm,
         handler,
-        "Next Workspace",
+        "下一个工作区",
         MenuActionHandler::on_next_workspace,
     );
     let prev_workspace_item = add_action_item(
         &workspace_submenu,
         mtm,
         handler,
-        "Previous Workspace",
+        "上一个工作区",
         MenuActionHandler::on_prev_workspace,
     );
     add_separator(&workspace_submenu);
     workspace_item.setEnabled(false);
 
-    let (_, layout_submenu) = add_submenu(&menu, mtm, "Layout");
+    let (_, layout_submenu) = add_submenu(&menu, mtm, "布局");
     let mut layout_items = Vec::with_capacity(5);
     for mode in [
         LayoutMode::Traditional,
@@ -797,48 +798,48 @@ fn build_static_menu(mtm: MainThreadMarker, handler: &Rc<MenuActionHandler>) -> 
         layout_items.push((mode, item));
     }
 
-    let (_, saved_layouts_menu) = add_submenu(&menu, mtm, "Saved Layouts");
+    let (_, saved_layouts_menu) = add_submenu(&menu, mtm, "已保存的布局");
     add_action_item(
         &saved_layouts_menu,
         mtm,
         handler,
-        "Save Layout As…",
+        "布局另存为…",
         MenuActionHandler::on_save_layout,
     );
     add_action_item(
         &saved_layouts_menu,
         mtm,
         handler,
-        "Update Master Layout",
+        "更新主布局快照",
         MenuActionHandler::on_save_master_file,
     );
     add_separator(&saved_layouts_menu);
-    let (_, restore_workspace_menu) = add_submenu(&saved_layouts_menu, mtm, "Restore Workspace");
-    let (_, restore_space_menu) = add_submenu(&saved_layouts_menu, mtm, "Restore Space");
+    let (_, restore_workspace_menu) = add_submenu(&saved_layouts_menu, mtm, "恢复工作区");
+    let (_, restore_space_menu) = add_submenu(&saved_layouts_menu, mtm, "恢复空间");
 
     add_separator(&menu);
     let reload_item = add_action_item(
         &menu,
         mtm,
         handler,
-        "Reload Config",
+        "重新加载配置",
         MenuActionHandler::on_reload_config,
     );
     let settings_item = add_action_item(
         &menu,
         mtm,
         handler,
-        "Settings…",
+        "设置…",
         MenuActionHandler::on_open_settings,
     );
     settings_item.setKeyEquivalent(&NSString::from_str(","));
     settings_item.setKeyEquivalentModifierMask(NSEventModifierFlags::Command);
 
     add_separator(&menu);
-    let (_, help_menu) = add_submenu(&menu, mtm, "Help");
+    let (_, help_menu) = add_submenu(&menu, mtm, "帮助");
     for (title, action) in [
         (
-            "Documentation",
+            "使用文档",
             MenuActionHandler::on_open_documentation as MenuCallback,
         ),
         ("GitHub", MenuActionHandler::on_open_github),
@@ -852,14 +853,14 @@ fn build_static_menu(mtm: MainThreadMarker, handler: &Rc<MenuActionHandler>) -> 
         &menu,
         mtm,
         handler,
-        "Sponsor Rift on GitHub",
+        "在 GitHub 赞助 Rift",
         MenuActionHandler::on_open_sponsor,
     );
-    sponsor_item.setSubtitle(Some(&NSString::from_str("help fund continued development")));
+    sponsor_item.setSubtitle(Some(&NSString::from_str("支持持续开发")));
 
     add_separator(&menu);
     let quit_item =
-        add_action_item(&menu, mtm, handler, "Quit Rift", MenuActionHandler::on_quit_rift);
+        add_action_item(&menu, mtm, handler, "退出 Rift", MenuActionHandler::on_quit_rift);
 
     BuiltStatusMenu {
         menu,
@@ -1085,9 +1086,9 @@ impl MenuActionHandler {
             Err(error) => {
                 let mtm = MainThreadMarker::new()?;
                 let alert = NSAlert::new(mtm);
-                alert.setMessageText(&NSString::from_str("Couldn’t Load Layout"));
+                alert.setMessageText(&NSString::from_str("无法加载布局"));
                 alert.setInformativeText(&NSString::from_str(&format!(
-                    "The layout file at “{}” could not be read.\n\n{error}",
+                    "无法读取布局文件“{}”。\n\n{error}",
                     path.display()
                 )));
                 let _ = alert.runModal();

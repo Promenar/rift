@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
@@ -84,6 +85,6 @@ impl Inventory {
             .map(|choice| choice.name.clone())
             .or_else(|| target.1.clone())
             .or_else(|| target.0.clone())
-            .unwrap_or_else(|| "Any application".into())
+            .unwrap_or_else(|| "任意应用程序".into())
     }
 }

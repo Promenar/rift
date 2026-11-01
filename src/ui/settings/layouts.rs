@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Layout configuration and independent, lazy shared-settings disclosures.
 use std::cell::OnceCell;
 
@@ -75,7 +76,7 @@ impl Inspector {
                 });
                 tile.ns_button()
                     .setAccessibilityHelp(Some(&objc2_foundation::NSString::from_str(&format!(
-                        "Shows {title}’s settings. Doesn’t change the default layout."
+                        "显示{title}的设置，默认布局保持不变。"
                     ))));
                 // Right-click a tile to make it the default or restore its settings.
                 let (menu, item, _) = layout_menu(&ui, weak, Some(mode));
@@ -97,7 +98,7 @@ impl Inspector {
                 objc2_app_kit::NSAccessibilityRadioGroupRole
             }));
             group.setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-                "Layout to configure",
+                "要配置的布局",
             )));
 
             let owner = weak.clone();
@@ -113,21 +114,21 @@ impl Inspector {
                         }
                     }),
             );
-            default_popup.accessibility_label("Default layout");
+            default_popup.accessibility_label("默认布局");
             default_popup
-                .tooltip("The layout new workspaces use, unless a workspace chooses its own.");
+                .tooltip("新工作区使用的布局；工作区可单独指定布局。");
             let default_control = Rc::new(
                 HStack::new(&ui)
                     .spacing(6.0)
-                    .push(SecondaryLabel::single_line(&ui, "Default layout"))
+                    .push(SecondaryLabel::single_line(&ui, "默认布局"))
                     .push(default_popup.clone()),
             );
-            default_control.accessibility_label("Default layout");
+            default_control.accessibility_label("默认布局");
 
             let title = Label::new(&ui, "").font(&Font::title3());
             let summary = Caption::new(&ui, "").max_lines(2);
             let (menu, use_as_default, restore_item) = layout_menu(&ui, weak, None);
-            let actions = Rc::new(Popup::actions(&ui, "Layout actions", menu));
+            let actions = Rc::new(Popup::actions(&ui, "布局操作", menu));
             let heading = HStack::new(&ui)
                 .alignment(objc2_app_kit::NSLayoutAttribute::FirstBaseline)
                 .push(
@@ -158,7 +159,7 @@ impl Inspector {
                 Rc::new(
                     Disclosure::new(
                         &ui,
-                        ["Spacing", "Display overrides"][index],
+                        ["间距", "显示器覆盖设置"][index],
                         View::new(&ui).content(shared_hosts[index].clone(), Insets {
                             top: 2.0,
                             left: 12.0,
@@ -212,9 +213,9 @@ impl Inspector {
                         cgs::layout::uniform_insets(12.0),
                     ))
                     .section(
-                        Section::new(&ui, "Shared settings")
+                        Section::new(&ui, "共享设置")
                             .description(
-                                "Every layout uses these, unless a layout or display sets its own.",
+                                "所有布局共用这些设置；布局或显示器可单独覆盖。",
                             )
                             .content(GroupBox::with_insets(
                                 &ui,
@@ -280,13 +281,13 @@ impl Inspector {
         let error = Rc::downgrade(&self.error);
         Alert::new(
             &self.ui,
-            &format!("Restore {title} defaults?"),
+            &format!("恢复{title}的默认设置？"),
             &format!(
-                "{title}’s settings return to their original values. Your default layout, shared settings, and display overrides don’t change."
+                "{title}的设置将恢复初始值。默认布局、共享设置和显示器覆盖设置保持不变。"
             ),
         )
-        .button("Restore Defaults")
-        .button("Cancel")
+        .button("恢复默认")
+        .button("取消")
         .show_sheet(&window, move |response| {
             if response == objc2_app_kit::NSAlertFirstButtonReturn {
                 restore(&model, mode, error);
@@ -393,12 +394,12 @@ impl Inspector {
             return;
         }
         for (tile, &(_, choice)) in self.tiles.iter().zip(pages::layouts()) {
-            tile.set_state(choice == mode, (choice == default).then_some("Default"));
+            tile.set_state(choice == mode, (choice == default).then_some("默认"));
         }
         let title = pages::layout_title(mode);
         self.title.set_text(title);
         self.summary.set_text(LayoutMode::CONFIG_CHOICES[mode.config_choice_index()].1);
-        self.actions.accessibility_label(&format!("{title} actions"));
+        self.actions.accessibility_label(&format!("{title}操作"));
         self.default_popup.set_selected(default.config_choice_index());
         let edited = self.default_items.len() - 1;
         for (index, item) in self.default_items.iter().enumerate() {
@@ -465,13 +466,13 @@ fn layout_menu(
 ) -> (Menu, WeakMenuItem, WeakMenuItem) {
     let target = move |inspector: &Inspector| mode.unwrap_or(inspector.selected.get());
     let weak = owner.clone();
-    let make_default = MenuItem::new(ui, "Use as Default Layout").on_click(move || {
+    let make_default = MenuItem::new(ui, "设为默认布局").on_click(move || {
         if let Some(inspector) = weak.upgrade() {
             inspector.set_default(target(&inspector));
         }
     });
     let weak = owner.clone();
-    let restore = MenuItem::new(ui, "Restore Defaults…").on_click(move || {
+    let restore = MenuItem::new(ui, "恢复默认设置…").on_click(move || {
         if let Some(inspector) = weak.upgrade() {
             inspector.confirm_restore(target(&inspector));
         }
@@ -504,10 +505,10 @@ fn floating_note(ui: &Ui) -> HStack {
     note.add(
         VStack::new(ui)
             .spacing(2.0)
-            .push(Label::new(ui, "Windows stay where you put them"))
+            .push(Label::new(ui, "窗口停留在您放置的位置"))
             .push(Caption::new(
                 ui,
-                "Rift doesn’t arrange windows in floating workspaces, so this layout has no settings of its own.",
+                "Rift 不会排列浮动工作区中的窗口，因此此布局没有单独设置。",
             )),
     );
     note
@@ -537,7 +538,7 @@ fn spacing_summary(source: &ConfigSource) -> String {
     };
     let outer = &gaps.outer;
     format!(
-        "Edges {} · Windows {}",
+        "边缘 {} · 窗口 {}",
         span(&[outer.top, outer.right, outer.bottom, outer.left]),
         span(&[gaps.inner.horizontal, gaps.inner.vertical])
     )
@@ -555,11 +556,11 @@ fn display_summary(source: &ConfigSource, env: Option<&Env>) -> String {
     custom.sort();
     custom.dedup();
     match custom.as_slice() {
-        [] => "None".into(),
+        [] => "无".into(),
         [uuid] => env
             .and_then(|env| editors::display_name(&env.displays.borrow(), uuid))
-            .unwrap_or_else(|| "1 display".into()),
-        all => format!("{} displays", all.len()),
+            .unwrap_or_else(|| "1 台显示器".into()),
+        all => format!("{} 台显示器", all.len()),
     }
 }
 
@@ -745,17 +746,17 @@ pub(super) fn finish_editing(view: &objc2_app_kit::NSView) -> bool {
 
 fn layout_help(ui: &Ui) -> HelpButton {
     let button = HelpButton::new(ui);
-    button.accessibility_label("Layouts help");
+    button.accessibility_label("布局帮助");
     let anchor = objc2::rc::Weak::new(button.ns_button());
     let ui = *ui;
     let popover = OnceCell::new();
     button.on_click(move || {
         let help = popover.get_or_init(|| {
             let content = VStack::new(&ui).spacing(10.0)
-                .push(SectionTitle::new(&ui, "Layouts"))
-                .push(WrappingLabel::new(&ui, "Workspaces without their own layout use the Default layout, chosen in the toolbar. Clicking a layout shows its settings without changing the default."))
-                .push(WrappingLabel::new(&ui, "Shared settings apply to every layout. A layout can choose its own new-window position, and a display can override spacing and scrolling column widths."))
-                .push(Link::new(&ui, "Layout documentation", "https://acsandmann.github.io/rift-docs/layouts/"));
+                .push(SectionTitle::new(&ui, "布局"))
+                .push(WrappingLabel::new(&ui, "未单独指定布局的工作区使用工具栏中选择的默认布局。点击布局可查看其设置，不会改变默认布局。"))
+                .push(WrappingLabel::new(&ui, "共享设置适用于所有布局。每个布局可单独选择新窗口位置，显示器也可覆盖间距和滚动列宽。"))
+                .push(Link::new(&ui, "布局文档", "https://acsandmann.github.io/rift-docs/layouts/"));
             content.width(320.0);
             HelpPopover::with_content(&ui, content)
         });

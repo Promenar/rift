@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Compile-time Settings metadata. Doc comments remain the source of help text;
 //! config serialization and validation stay independent of UI generation.
 pub use rift_config_derive::{ConfigEnum, ConfigSchema};
@@ -109,7 +110,7 @@ mod tests {
         let FieldKind::Choice(choices) = field.kind else {
             panic!("expected native popup choices")
         };
-        let index = choices.iter().position(|choice| choice.0 == "Name").unwrap();
+        let index = choices.iter().position(|choice| choice.0 == "名称").unwrap();
         field.write.unwrap()(&mut config, FieldValue::Choice(index)).unwrap();
         assert_eq!(config.active_label, ActiveWorkspaceLabel::Name);
         assert_eq!(serde_json::to_value(&config).unwrap()["active_label"], "name");
