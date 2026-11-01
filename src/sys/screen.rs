@@ -191,11 +191,18 @@ impl<S: System> ScreenCache<S> {
             cg_screens.iter().map(|screen| self.system.display_uuid(screen)).collect();
         let uuid_strings: Vec<String> = uuids.iter().map(|uuid| uuid.to_string()).collect();
 
-        let union_max_y = cg_screens
+        // 同一显示器的 Quartz 顶边与 Cocoa 顶边之和是全局翻转基准。
+        // 使用屏幕并集底边会让较高或下置的外屏把页签推离主屏。
+        let screen_height = cg_screens
             .iter()
-            .map(|screen| screen.bounds.max().y)
-            .fold(f64::NEG_INFINITY, f64::max);
-        let converter = CoordinateConverter { screen_height: union_max_y };
+            .find_map(|cg| {
+                ns_screens
+                    .iter()
+                    .find(|ns| ns.cg_id == cg.cg_id)
+                    .map(|ns| cg.bounds.origin.y + ns.frame.max().y)
+            })
+            .unwrap_or_else(|| cg_screens[0].bounds.max().y);
+        let converter = CoordinateConverter { screen_height };
 
         let screens: Vec<ScreenInfo> = cg_screens
             .iter()
@@ -912,6 +919,106 @@ mod test {
                 0.0,
             )
         );
+    }
+
+    #[test]
+    fn converter_uses_matching_cocoa_and_quartz_screen_origins() {
+        let rect = |x, y, width, height| {
+            CGRect::new(CGPoint::new(x, y), CGSize::new(width, height))
+        };
+        let primary = rect(0.0, 0.0, 1512.0, 982.0);
+        // 外屏高于主屏、上下排列、左侧排列都不能改变坐标翻转基准。
+        for external in [
+            rect(1512.0, 0.0, 1920.0, 1200.0),
+            rect(1512.0, 0.0, 1080.0, 1920.0),
+            rect(0.0, 982.0, 1080.0, 1920.0),
+            rect(0.0, -1920.0, 1080.0, 1920.0),
+            rect(-1080.0, -200.0, 1080.0, 1920.0),
+        ] {
+            let cocoa_external = rect(
+                external.origin.x,
+                982.0 - external.origin.y - external.size.height,
+                external.size.width,
+                external.size.height,
+            );
+            let mut cache = ScreenCache::new_with(Stub {
+                cg_screens: vec![
+                    CGScreenInfo { cg_id: ScreenId(1), bounds: primary },
+                    CGScreenInfo { cg_id: ScreenId(3), bounds: external },
+                ],
+                ns_screens: vec![
+                    NSScreenInfo {
+                        cg_id: ScreenId(3), frame: cocoa_external,
+                        visible_frame: cocoa_external, backing_scale: 1.0, name: None,
+                    },
+                    NSScreenInfo {
+                        cg_id: ScreenId(1), frame: primary,
+                        visible_frame: primary, backing_scale: 2.0, name: None,
+                    },
+                ],
+            });
+            let (_, converter) = cache.refresh().unwrap();
+            let tab = rect(49.0, 34.0, 1463.0, 28.0);
+            assert_eq!(
+                converter.convert_rect(tab),
+                Some(rect(49.0, 920.0, 1463.0, 28.0)),
+                "外屏拓扑 {external:?} 不应移动主屏页签",
+            );
+            assert_eq!(converter.convert_rect(external), Some(cocoa_external));
+            assert_eq!(converter.convert_rect(cocoa_external), Some(external));
+        }
+    }
+
+    #[test]
+    fn converter_falls_back_to_primary_when_cocoa_screens_are_missing() {
+        // 屏幕排序读取系统主屏 ID，测试替身必须与执行主机保持一致。
+        let main_id = objc2_core_graphics::CGMainDisplayID();
+        let mut cache = ScreenCache::new_with(Stub {
+            cg_screens: vec![
+                CGScreenInfo {
+                    cg_id: ScreenId(main_id),
+                    bounds: CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(1512.0, 982.0)),
+                },
+                CGScreenInfo {
+                    cg_id: ScreenId(main_id.wrapping_add(1)),
+                    bounds: CGRect::new(CGPoint::new(1512.0, 0.0), CGSize::new(1080.0, 1920.0)),
+                },
+            ],
+            ns_screens: vec![],
+        });
+        let (_, converter) = cache.refresh().unwrap();
+        assert_eq!(converter.convert_point(CGPoint::new(0.0, 34.0)), Some(CGPoint::new(0.0, 948.0)));
+    }
+
+    #[test]
+    fn converter_stays_anchored_when_a_taller_display_is_connected() {
+        let primary = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(1512.0, 982.0));
+        let external = CGRect::new(CGPoint::new(1512.0, 0.0), CGSize::new(1080.0, 1920.0));
+        let cocoa_external = CGRect::new(CGPoint::new(1512.0, -938.0), external.size);
+        let cg_primary = CGScreenInfo { cg_id: ScreenId(1), bounds: primary };
+        let ns_primary = NSScreenInfo {
+            cg_id: ScreenId(1), frame: primary, visible_frame: primary,
+            backing_scale: 2.0, name: None,
+        };
+        let system = SequenceSystem::new(
+            vec![vec![cg_primary.clone()], vec![
+                cg_primary, CGScreenInfo { cg_id: ScreenId(3), bounds: external },
+            ]],
+            vec![vec![ns_primary.clone()], vec![
+                NSScreenInfo {
+                    cg_id: ScreenId(3), frame: cocoa_external, visible_frame: cocoa_external,
+                    backing_scale: 1.0, name: None,
+                }, ns_primary,
+            ]],
+            vec![CFString::from_str("main"), CFString::from_str("main"), CFString::from_str("external")],
+        );
+        let mut cache = ScreenCache::new_with(system);
+        let (_, before) = cache.refresh().unwrap();
+        cache.mark_dirty();
+        let (_, after) = cache.refresh().unwrap();
+        let tab_origin = CGPoint::new(49.0, 34.0);
+        assert_eq!(before.convert_point(tab_origin), Some(CGPoint::new(49.0, 948.0)));
+        assert_eq!(after.convert_point(tab_origin), before.convert_point(tab_origin));
     }
 
     #[test]

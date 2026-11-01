@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Session-owned Overview. Runtime frames are truth; captured images only decorate cards.
 use std::collections::VecDeque;
 use std::ptr::NonNull;
@@ -119,14 +120,13 @@ fn workspace_heading(ws: &WorkspaceProjection, scale: f64) -> CGRect {
 
 fn update_heading(heading: &CATextLayer, data: &RuntimeWorkspaceData) {
     let text = CFString::from_str(&format!(
-        "{}  ·  {} window{}",
+        "{}  ·  {} 个窗口",
         if data.name.parse::<usize>().is_ok() {
-            format!("Workspace {}", data.name)
+            format!("工作区 {}", data.name)
         } else {
             data.name.clone()
         },
         data.windows.len(),
-        if data.windows.len() == 1 { "" } else { "s" }
     ));
     unsafe {
         heading.setString(Some(&*(text.as_ref() as *const AnyObject)));
@@ -372,7 +372,7 @@ impl WindowCard {
         let title = label(
             &caption,
             if data.info.title.is_empty() {
-                data.app_name.as_deref().unwrap_or("Window")
+                data.app_name.as_deref().unwrap_or("窗口")
             } else {
                 &data.info.title
             },
@@ -659,7 +659,7 @@ impl DisplayOverview {
                     heading.setFontSize(13.0);
                     let empty = label(
                         &container,
-                        "Empty workspace",
+                        "空工作区",
                         rect(
                             (ws.frame.size.width - 180.0) / 2.0,
                             ws.frame.size.height / 2.0 - 10.0,

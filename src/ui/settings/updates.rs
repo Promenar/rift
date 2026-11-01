@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! A user-initiated release check. No timers or background checks.
 pub enum Release {
     Current,
@@ -29,16 +30,16 @@ fn latest() -> Result {
         ])
         .output()
         .map_err(|_| {
-            "Couldn’t connect. Check your internet connection and try again.".to_string()
+            "无法连接。请检查网络连接后重试。".to_string()
         })?;
     if !response.status.success() {
-        return Err("Couldn’t check for updates. Check your connection and try again.".into());
+        return Err("无法检查更新。请检查网络连接后重试。".into());
     }
     let release: serde_json::Value = serde_json::from_slice(&response.stdout)
-        .map_err(|_| "The release service returned an unexpected response.".to_string())?;
+        .map_err(|_| "版本服务返回了无法识别的响应。".to_string())?;
     let tag = release["tag_name"]
         .as_str()
-        .ok_or_else(|| "No release version was returned.".to_string())?;
+        .ok_or_else(|| "版本服务未返回版本号。".to_string())?;
     let latest = tag.trim_start_matches('v');
     let running = env!("CARGO_PKG_VERSION");
     if latest == running {

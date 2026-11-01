@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Native controls generated from config metadata, using the same ConfigActor
 //! submission and sheet draft ownership as handcrafted Settings controls.
 use super::*;
@@ -173,7 +174,7 @@ impl FormBuilder {
                 );
                 input.set_items(choices.iter().map(|choice| choice.0));
                 if let FieldValue::Choice(index) = read(get(defaults())) {
-                    input.set_item_badge(index, Some("Default"));
+                    input.set_item_badge(index, Some("默认"));
                 }
                 self.sync_when(
                     &input,

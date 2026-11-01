@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Searchable settings destinations, without constructing hidden page trees.
 use super::Category::*;
 use super::{CATEGORIES, Category};
@@ -25,8 +26,8 @@ impl Entry {
     pub fn target(&self) -> Option<super::layouts::Target> {
         use super::layouts::Target;
         match section(&self.location) {
-            "Spacing" => Some(Target::Spacing),
-            "Display overrides" => Some(Target::Displays),
+            "间距" => Some(Target::Spacing),
+            "显示器覆盖设置" => Some(Target::Displays),
             _ => self.layout.map(Target::Layout),
         }
     }
@@ -84,8 +85,33 @@ impl Draft {
         let description = describe(&self);
         let name = self.title.to_lowercase();
         let context = self.location.to_lowercase();
-        let haystack =
-            format!("{name} {context} {} {} {}", self.aliases, self.key, self.help).to_lowercase();
+        let category_alias = match self.page {
+            General => "General",
+            Layouts => "Layouts",
+            Workspaces => "Workspaces",
+            Rules => "Rules",
+            Keyboard => "Keyboard",
+            Mouse => "Mouse & Trackpad",
+            MenuBar => "Menu Bar",
+            Overview => "Overview",
+            StackTabs => "Stack Tabs",
+            Advanced => "Advanced",
+            About => "About",
+        };
+        let layout_alias = match self.layout {
+            Some(LayoutMode::Traditional) => "Traditional",
+            Some(LayoutMode::Bsp) => "BSP",
+            Some(LayoutMode::MasterStack) => "Master Stack",
+            Some(LayoutMode::Scrolling) => "Scrolling",
+            Some(LayoutMode::Stack) => "Stack",
+            Some(LayoutMode::Floating) => "Floating",
+            None => "",
+        };
+        let haystack = format!(
+            "{name} {context} {category_alias} {layout_alias} {} {} {}",
+            self.aliases, self.key, self.help
+        )
+        .to_lowercase();
         Entry {
             title: self.title,
             location: self.location,
@@ -104,20 +130,20 @@ fn describe(entry: &Draft) -> String {
         return entry.help.lines().map(str::trim).collect::<Vec<_>>().join(" ");
     }
     let text = match entry.title {
-        "Screen edges" => "Set the space between windows and screen edges.",
-        "Virtual Workspaces" => "Organize your windows into separate workspaces.",
-        "Workspace swipes" => "Switch workspaces using trackpad gestures.",
-        "New window position" => "Choose where newly opened windows appear.",
-        "Default layout" => "Choose the layout used by default.",
-        "App rules" => "Choose how Rift handles an application's windows.",
-        "Workspace rules" => "Assign matching windows to a workspace.",
-        "Keyboard shortcuts" => "View, add, and edit keyboard shortcuts.",
-        "Display overrides" => "Customize spacing and column widths for one display.",
-        "Workspaces" => "Add workspaces and customize their names and layouts.",
+        "屏幕边缘" => "设置窗口与屏幕边缘之间的距离。",
+        "虚拟工作区" => "将窗口组织到不同工作区。",
+        "工作区轻扫" => "使用触控板手势切换工作区。",
+        "新窗口位置" => "选择新打开窗口的出现位置。",
+        "默认布局" => "选择默认使用的布局。",
+        "应用规则" => "选择 Rift 如何处理应用程序窗口。",
+        "工作区规则" => "将匹配的窗口分配到工作区。",
+        "键盘快捷键" => "查看、添加和编辑键盘快捷键。",
+        "显示器覆盖设置" => "为单台显示器自定间距和列宽。",
+        "工作区" => "添加工作区并自定名称和布局。",
         _ => return entry.location.clone(),
     };
     if entry.layout.is_some() {
-        let layout = entry.location.strip_prefix("Layouts › ").unwrap_or(&entry.location);
+        let layout = entry.location.strip_prefix("布局 › ").unwrap_or(&entry.location);
         format!("{layout} · {text}")
     } else {
         text.into()
@@ -129,171 +155,171 @@ const MANUAL: &[(Category, Option<LayoutMode>, &str, &str, &str)] = &[
     (
         Layouts,
         None,
-        "Spacing",
-        "Screen edges",
-        "gaps gap margin padding outer edges spacing",
+        "间距",
+        "屏幕边缘",
+        "Screen edges gaps gap margin padding outer edges spacing",
     ),
     (
         Layouts,
         None,
-        "Spacing",
-        "Set each edge separately",
-        "gaps gap top bottom left right margin padding outer",
+        "间距",
+        "分别设置各边缘",
+        "Set each edge separately gaps gap top bottom left right margin padding outer",
     ),
     (
         Layouts,
         None,
-        "Spacing",
-        "Horizontal",
-        "gaps gap between windows inner horizontal spacing",
+        "间距",
+        "水平",
+        "Horizontal gaps gap between windows inner horizontal spacing",
     ),
     (
         Layouts,
         None,
-        "Spacing",
-        "Vertical",
-        "gaps gap between windows inner vertical spacing",
+        "间距",
+        "垂直",
+        "Vertical gaps gap between windows inner vertical spacing",
     ),
     (
         Layouts,
         None,
-        "Display overrides",
-        "Display overrides",
-        "monitor screen connected per display override gaps spacing widths add display uuid",
+        "显示器覆盖设置",
+        "显示器覆盖设置",
+        "Display overrides monitor screen connected per display override gaps spacing widths add display uuid",
     ),
     (
         Workspaces,
         None,
-        "Workspaces",
-        "Virtual Workspaces",
-        "desktops spaces enabled",
+        "工作区",
+        "虚拟工作区",
+        "Virtual Workspaces desktops spaces enabled",
     ),
     (
         Rules,
         None,
-        "Rules",
-        "App rules",
-        "application bundle identifier manage ignore floating window title match workspace assign desktop",
+        "规则",
+        "应用规则",
+        "App rules application bundle identifier manage ignore floating window title match workspace assign desktop",
     ),
     (
         Keyboard,
         None,
-        "Keyboard",
-        "Keyboard shortcuts",
-        "keys hotkeys keybindings bindings commands",
+        "键盘",
+        "键盘快捷键",
+        "Keyboard shortcuts keys hotkeys keybindings bindings commands",
     ),
     (
         Keyboard,
         None,
-        "Keyboard",
-        "Shortcut set",
-        "keymap keybinding mode default",
+        "键盘",
+        "快捷键集",
+        "Shortcut set keymap keybinding mode default",
     ),
     (
         Keyboard,
         None,
-        "Keyboard",
-        "Reusable modifier combinations",
-        "command option control shift modifiers",
+        "键盘",
+        "可复用修饰键组合",
+        "Reusable modifier combinations command option control shift modifiers",
     ),
     (
         Mouse,
         None,
-        "Mouse & Trackpad",
-        "Workspace swipes",
-        "trackpad gestures fingers swipe sensitivity haptic",
+        "鼠标与触控板",
+        "工作区轻扫",
+        "Workspace swipes trackpad gestures fingers swipe sensitivity haptic",
     ),
     (
         Mouse,
         None,
-        "Mouse & Trackpad",
-        "Scrolling layout gestures",
-        "trackpad gestures fingers swipe scrolling niri",
+        "鼠标与触控板",
+        "滚动布局手势",
+        "Scrolling layout gestures trackpad gestures fingers swipe scrolling niri",
     ),
     (
         Mouse,
         None,
-        "Mouse & Trackpad",
-        "Drag & Drop",
-        "mouse modifier move resize swap stack drop",
+        "鼠标与触控板",
+        "拖放",
+        "Drag & Drop mouse modifier move resize swap stack drop",
     ),
     (
         Mouse,
         None,
-        "Mouse & Trackpad",
-        "Pointer movement",
-        "mouse cursor movement",
+        "鼠标与触控板",
+        "指针移动",
+        "Pointer movement mouse cursor movement",
     ),
     (
         Overview,
         None,
-        "Overview",
-        "Overview",
-        "window previews fade transitions",
+        "总览",
+        "总览",
+        "Overview window previews fade transitions",
     ),
     (
         StackTabs,
         None,
-        "Stack Tabs",
-        "Stack Tabs",
-        "stackline indicator color position thickness interaction",
+        "堆叠标签",
+        "堆叠标签",
+        "Stack Tabs stackline indicator color position thickness interaction",
     ),
     (
         Advanced,
         None,
-        "Advanced",
-        "Startup commands",
-        "launch run shell exec",
+        "高级",
+        "启动命令",
+        "Startup commands launch run shell exec",
     ),
     (
         Advanced,
         None,
-        "Advanced",
-        "Autofocus blacklist",
-        "focus exclude ignore app",
+        "高级",
+        "自动聚焦排除列表",
+        "Autofocus blacklist focus exclude ignore app",
     ),
     (
         Advanced,
         None,
-        "Advanced",
-        "Reload config when edited externally",
-        "configuration file automatic reload toml",
+        "高级",
+        "外部编辑后重新载入配置",
+        "Reload config when edited externally configuration file automatic reload toml",
     ),
     (
         Advanced,
         None,
-        "Advanced",
-        "Configuration file",
-        "open config path toml reload",
+        "高级",
+        "配置文件",
+        "Configuration file open config path toml reload",
     ),
     (
         About,
         None,
-        "About",
-        "Check for Updates…",
-        "version latest release update",
+        "关于",
+        "检查更新…",
+        "Check for Updates… version latest release update",
     ),
-    (About, None, "About", "Documentation", "docs help guide manual"),
+    (About, None, "关于", "文档", "Documentation docs help guide manual"),
     (
         About,
         None,
-        "About",
-        "Matrix Room",
-        "matrix community chat discussion support",
-    ),
-    (
-        About,
-        None,
-        "About",
-        "Release Notes",
-        "changelog version changes",
+        "关于",
+        "Matrix 聊天室",
+        "Matrix Room matrix community chat discussion support",
     ),
     (
         About,
         None,
-        "About",
-        "Sponsor Rift",
-        "donate support sponsorship",
+        "关于",
+        "发行说明",
+        "Release Notes changelog version changes",
+    ),
+    (
+        About,
+        None,
+        "关于",
+        "赞助 Rift",
+        "Sponsor Rift donate support sponsorship",
     ),
 ];
 
@@ -323,37 +349,37 @@ fn catalog() -> &'static [Entry] {
             }
         }
         let mut out = Vec::new();
-        append::<Settings>(&mut out, "general", General, None, "General › Window behavior");
-        append::<Settings>(&mut out, "advanced", Advanced, None, "Advanced");
-        append::<Settings>(&mut out, "pointer", Mouse, None, "Mouse & Trackpad › Focus");
-        append::<VirtualWorkspaceSettings>(&mut out, "", Workspaces, None, "Workspaces");
+        append::<Settings>(&mut out, "general", General, None, "通用 › 窗口行为");
+        append::<Settings>(&mut out, "advanced", Advanced, None, "高级");
+        append::<Settings>(&mut out, "pointer", Mouse, None, "鼠标与触控板 › 聚焦");
+        append::<VirtualWorkspaceSettings>(&mut out, "", Workspaces, None, "工作区");
         append::<GestureSettings>(
             &mut out,
             "main",
             Mouse,
             None,
-            "Mouse & Trackpad › Workspace swipes",
+            "鼠标与触控板 › 工作区轻扫",
         );
         append::<GestureSettings>(
             &mut out,
             "advanced",
             Mouse,
             None,
-            "Mouse & Trackpad › Advanced swipe settings",
+            "鼠标与触控板 › 高级轻扫设置",
         );
         append::<ScrollingGestureSettings>(
             &mut out,
             "",
             Mouse,
             None,
-            "Mouse & Trackpad › Scrolling layout gestures",
+            "鼠标与触控板 › 滚动布局手势",
         );
-        append::<DragDropSettings>(&mut out, "", Mouse, None, "Mouse & Trackpad › Drag & Drop");
-        append::<MenuBarSettings>(&mut out, "", MenuBar, None, "Menu Bar");
-        append::<MissionControlSettings>(&mut out, "", Overview, None, "Overview");
-        append::<StackLineSettings>(&mut out, "", StackTabs, None, "Stack Tabs");
-        append::<LayoutSettings>(&mut out, "", Layouts, None, "Layouts");
-        append::<BaseLayoutSettings>(&mut out, "", Layouts, None, "Layouts › Shared settings");
+        append::<DragDropSettings>(&mut out, "", Mouse, None, "鼠标与触控板 › 拖放");
+        append::<MenuBarSettings>(&mut out, "", MenuBar, None, "菜单栏");
+        append::<MissionControlSettings>(&mut out, "", Overview, None, "总览");
+        append::<StackLineSettings>(&mut out, "", StackTabs, None, "堆叠标签");
+        append::<LayoutSettings>(&mut out, "", Layouts, None, "布局");
+        append::<BaseLayoutSettings>(&mut out, "", Layouts, None, "布局 › 共享设置");
         for (title, layout) in super::pages::layouts() {
             if *layout != LayoutMode::Floating {
                 append::<BaseLayoutSettings>(
@@ -361,7 +387,7 @@ fn catalog() -> &'static [Entry] {
                     "",
                     Layouts,
                     Some(*layout),
-                    &format!("Layouts › {title}"),
+                    &format!("布局 › {title}"),
                 );
             }
         }
@@ -370,31 +396,31 @@ fn catalog() -> &'static [Entry] {
             "",
             Layouts,
             Some(LayoutMode::Traditional),
-            "Layouts › Traditional",
+            "布局 › 传统平铺",
         );
-        append::<BspLayoutSettings>(&mut out, "", Layouts, Some(LayoutMode::Bsp), "Layouts › BSP");
-        append::<StackSettings>(&mut out, "", Layouts, Some(LayoutMode::Stack), "Layouts › Stack");
+        append::<BspLayoutSettings>(&mut out, "", Layouts, Some(LayoutMode::Bsp), "布局 › 二分平铺");
+        append::<StackSettings>(&mut out, "", Layouts, Some(LayoutMode::Stack), "布局 › 堆叠");
         append::<MasterStackSettings>(
             &mut out,
             "",
             Layouts,
             Some(LayoutMode::MasterStack),
-            "Layouts › Master Stack",
+            "布局 › 主从布局",
         );
         append::<ScrollingLayoutSettings>(
             &mut out,
             "",
             Layouts,
             Some(LayoutMode::Scrolling),
-            "Layouts › Scrolling",
+            "布局 › 滚动布局",
         );
-        append::<OuterGaps>(&mut out, "", Layouts, None, "Spacing");
-        append::<InnerGaps>(&mut out, "", Layouts, None, "Spacing");
+        append::<OuterGaps>(&mut out, "", Layouts, None, "间距");
+        append::<InnerGaps>(&mut out, "", Layouts, None, "间距");
 
-        let pages = CATEGORIES.iter().map(|&(page, title, _)| (page, None, "Settings", title, ""));
+        let pages = CATEGORIES.iter().map(|&(page, title, _)| (page, None, "设置", title, ""));
         let layouts = super::pages::layouts()
             .iter()
-            .map(|&(title, layout)| (Layouts, Some(layout), "Layouts", title, "layout"));
+            .map(|&(title, layout)| (Layouts, Some(layout), "布局", title, "layout"));
         for (page, layout, location, title, aliases) in
             pages.chain(layouts).chain(MANUAL.iter().copied())
         {
@@ -465,21 +491,27 @@ mod tests {
     fn search_finds_settings_and_their_layouts() {
         for (query, title, page, layout) in [
             (
-                "column width",
-                "Default column width",
+                "默认列宽",
+                "默认列宽",
                 Layouts,
                 Some(LayoutMode::Scrolling),
             ),
-            (" FFM ", "Focus follows pointer", Mouse, None),
-            ("stack offset", "Window offset", Layouts, Some(LayoutMode::Stack)),
-            ("screen edges", "Screen edges", Layouts, None),
-            ("per display override", "Display overrides", Layouts, None),
+            (" FFM ", "焦点跟随指针", Mouse, None),
+            ("窗口偏移", "窗口偏移", Layouts, Some(LayoutMode::Stack)),
+            ("screen edges", "屏幕边缘", Layouts, None),
+            ("per display override", "显示器覆盖设置", Layouts, None),
         ] {
             let found = results(query);
             let first = found.first().expect("find a setting, not just its section");
             assert_eq!((first.title, first.page, first.layout), (title, page, layout));
         }
-        assert!(results("gaps").iter().any(|result| result.title == "Screen edges"));
+        assert!(results("gaps").iter().any(|result| result.title == "屏幕边缘"));
+        assert!(results("column width").iter().any(|result| {
+            result.title == "默认列宽" && result.layout == Some(LayoutMode::Scrolling)
+        }));
+        assert!(results("Master Stack").iter().any(|result| {
+            result.layout == Some(LayoutMode::MasterStack)
+        }));
         assert!(
             results("column width unrelatedword").is_empty(),
             "match every query word"

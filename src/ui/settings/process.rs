@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! `rift --settings`: the Settings window in a short-lived child process.
 //!
 //! The daemon owns window management and configuration; this process owns only the native UI
@@ -118,10 +119,10 @@ pub fn run(config_path: PathBuf) -> ! {
     let lost = messages.clone();
     let daemon = std::os::unix::process::parent_id();
     crate::sys::dispatch::on_proc_exit(daemon as i32, move || {
-        let _ = lost.send(Message::Lost("Rift quit.".into()));
+        let _ = lost.send(Message::Lost("Rift 已退出。".into()));
     });
     if std::os::unix::process::parent_id() != daemon {
-        let _ = messages.send(Message::Lost("Rift quit.".into()));
+        let _ = messages.send(Message::Lost("Rift 已退出。".into()));
     }
     let (jobs, queue) = mpsc::channel();
     let worker = messages.clone();
@@ -311,8 +312,8 @@ fn fail(error: &str) {
     tracing::error!(%error, "Settings cannot reach Rift");
     dispatchr::queue::main().after_f_s(Time::NOW, error.to_owned(), |error| {
         let ui = Ui::new(MainThreadMarker::new().expect("main queue"));
-        Alert::new(&ui, "Rift Settings can’t reach Rift", &error)
-            .button("OK")
+        Alert::new(&ui, "设置窗口无法连接 Rift", &error)
+            .button("好")
             .run_modal();
         std::process::exit(1)
     });
@@ -470,8 +471,8 @@ impl Session {
         }
         if let (true, Some(settings)) = (first, &self.settings) {
             let ui = settings.router.ui;
-            Alert::new(&ui, "Settings can’t load the latest configuration", &error)
-                .button("OK")
+            Alert::new(&ui, "设置窗口无法加载最新配置", &error)
+                .button("好")
                 .show_sheet(settings.window.ns_window(), |_| {});
         }
     }
@@ -626,8 +627,7 @@ fn runtime(client: &RiftMachClient) -> Result<Runtime, ClientError> {
 fn recoverable(error: ClientError) -> Result<String, String> {
     match error {
         ClientError::ServiceUnavailable | ClientError::Mach { .. } => Err(error.to_string()),
-        ClientError::MessageTooLarge => Ok("The configuration is too large for Settings to \
-                                            send. Edit the configuration file directly."
+        ClientError::MessageTooLarge => Ok("配置内容过大，设置窗口无法发送。请直接编辑配置文件。"
             .into()),
         ClientError::Server(error) => Ok(match error.get("message").and_then(|m| m.as_str()) {
             Some(message) => message.to_owned(),

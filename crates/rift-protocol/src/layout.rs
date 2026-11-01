@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -139,18 +140,23 @@ impl LayoutKind {
 #[serde(rename_all = "snake_case")]
 pub enum LayoutMode {
     #[default]
-    /// Arrange windows in adjustable rows and columns.
+    /// 将窗口排列为可调整的行和列。
+    #[setting(label = "传统平铺")]
     Traditional,
-    /// Split available space as windows are added.
-    #[setting(label = "BSP")]
+    /// 添加窗口时逐步二分可用空间。
+    #[setting(label = "二分平铺")]
     Bsp,
-    /// Overlap windows while keeping each one visible.
+    /// 重叠排列窗口，并让每个窗口保持可见。
+    #[setting(label = "堆叠")]
     Stack,
-    /// Keep primary windows large with the rest beside them.
+    /// 主窗口占据较大区域，其余窗口排列在旁。
+    #[setting(label = "主从布局")]
     MasterStack,
-    /// Arrange windows in a horizontally scrolling strip.
+    /// 将窗口排列为可水平滚动的条带。
+    #[setting(label = "滚动布局")]
     Scrolling,
-    /// Move and resize windows without automatic tiling.
+    /// 自由移动和调整窗口尺寸。
+    #[setting(label = "浮动")]
     Floating,
 }
 

@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Grouped settings navigation backed by AppKit's source-list selection.
 use cgs::*;
 use objc2::rc::Retained;
@@ -69,7 +70,7 @@ impl SettingsSidebar {
         table
             .ns_table_view()
             .setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-                "Settings categories",
+                "设置类别",
             )));
         Self { table }
     }

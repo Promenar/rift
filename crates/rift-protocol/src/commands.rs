@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use std::path::PathBuf;
 
 use serde::de::Error as DeError;
@@ -186,28 +187,51 @@ pub enum ConfigCommand {
 #[serde(rename_all = "snake_case")]
 pub enum AnimationEasing {
     #[default]
+    #[setting(label = "缓入缓出")]
     EaseInOut,
+    #[setting(label = "线性")]
     Linear,
+    #[setting(label = "正弦缓入")]
     EaseInSine,
+    #[setting(label = "正弦缓出")]
     EaseOutSine,
+    #[setting(label = "正弦缓入缓出")]
     EaseInOutSine,
+    #[setting(label = "二次缓入")]
     EaseInQuad,
+    #[setting(label = "二次缓出")]
     EaseOutQuad,
+    #[setting(label = "二次缓入缓出")]
     EaseInOutQuad,
+    #[setting(label = "三次缓入")]
     EaseInCubic,
+    #[setting(label = "三次缓出")]
     EaseOutCubic,
+    #[setting(label = "三次缓入缓出")]
     EaseInOutCubic,
+    #[setting(label = "四次缓入")]
     EaseInQuart,
+    #[setting(label = "四次缓出")]
     EaseOutQuart,
+    #[setting(label = "四次缓入缓出")]
     EaseInOutQuart,
+    #[setting(label = "五次缓入")]
     EaseInQuint,
+    #[setting(label = "五次缓出")]
     EaseOutQuint,
+    #[setting(label = "五次缓入缓出")]
     EaseInOutQuint,
+    #[setting(label = "指数缓入")]
     EaseInExpo,
+    #[setting(label = "指数缓出")]
     EaseOutExpo,
+    #[setting(label = "指数缓入缓出")]
     EaseInOutExpo,
+    #[setting(label = "圆形缓入")]
     EaseInCirc,
+    #[setting(label = "圆形缓出")]
     EaseOutCirc,
+    #[setting(label = "圆形缓入缓出")]
     EaseInOutCirc,
 }
 

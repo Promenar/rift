@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Interface preferences. Previews are event-driven native views, never windows.
 use objc2_app_kit::*;
 
@@ -13,7 +14,7 @@ pub(super) fn menu_bar(ui: Ui, model: &Rc<Model>) -> Page {
     indicator.height(24.0);
     let width = indicator.ns_view().widthAnchor().constraintEqualToConstant(100.0);
     width.setActive(true);
-    let disabled = Rc::new(Caption::single_line(&ui, "Rift indicator is hidden"));
+    let disabled = Rc::new(Caption::single_line(&ui, "Rift 指示器已隐藏"));
     let bar = HStack::new(&ui)
         .spacing(10.0)
         .insets(Insets {
@@ -23,7 +24,7 @@ pub(super) fn menu_bar(ui: Ui, model: &Rc<Model>) -> Page {
             right: 12.0,
         })
         .push(Label::new(&ui, "").font(&NSFont::systemFontOfSize(16.0)))
-        .push(Label::new(&ui, "Finder").font(&NSFont::systemFontOfSize(12.0)))
+        .push(Label::new(&ui, "访达").font(&NSFont::systemFontOfSize(12.0)))
         .push(Spacer::new(&ui))
         .push(disabled.clone())
         .push(indicator.clone())
@@ -50,16 +51,16 @@ pub(super) fn menu_bar(ui: Ui, model: &Rc<Model>) -> Page {
     }
     let preview = Section::form(&ui, "").content(bar).footer(Caption::new(
         &ui,
-        "Example: Development workspace · resize binding mode",
+        "示例：开发工作区 · resize 快捷键模式",
     ));
     let visibility = f.fields(
-        Section::new(&ui, "Visibility"),
+        Section::new(&ui, "可见性"),
         &["enabled", "show_empty", "show_binding_mode"],
         |s| &s.settings.ui.menu_bar,
         |s| &mut s.settings.ui.menu_bar,
     );
     let appearance = f.fields(
-        Section::new(&ui, "Workspaces"),
+        Section::new(&ui, "工作区"),
         &["mode", "active_label", "display_style"],
         |s| &s.settings.ui.menu_bar,
         |s| &mut s.settings.ui.menu_bar,
@@ -84,7 +85,7 @@ pub(super) fn menu_bar(ui: Ui, model: &Rc<Model>) -> Page {
             path.set_value(&s.settings.ui.menu_bar.layout_folder);
         },
     );
-    let row = f.row("Layout folder", path, message);
+    let row = f.row("布局文件夹", path, message);
     let row = f
         .schema_metadata(row, MenuBarSettings::field("layout_folder").unwrap(), |s| {
             &s.settings.ui.menu_bar
@@ -94,7 +95,7 @@ pub(super) fn menu_bar(ui: Ui, model: &Rc<Model>) -> Page {
         SettingsPage::new(&ui, "").section(preview).section(visibility).section(
             appearance.row(row).footer(Caption::new(
                 &ui,
-                "Custom layout images are used by the workspace menu.",
+                "布局文件会显示在菜单栏的已保存布局菜单中。",
             )),
         ),
     )
@@ -104,13 +105,13 @@ pub(super) fn overview(ui: Ui, model: &Rc<Model>) -> Page {
     let mut f = FormBuilder::new(ui, model);
     f.tooltips = true;
     let visibility = f.fields(
-        Section::new(&ui, "Workspaces"),
+        Section::new(&ui, "工作区"),
         &["enabled", "show_empty_workspaces", "window_previews"],
         |s| &s.settings.ui.mission_control,
         |s| &mut s.settings.ui.mission_control,
     );
     let transitions = f.fields(
-        Section::new(&ui, "Transitions"),
+        Section::new(&ui, "过渡效果"),
         &["fade_enabled"],
         |s| &s.settings.ui.mission_control,
         |s| &mut s.settings.ui.mission_control,
@@ -129,7 +130,7 @@ pub(super) fn overview(ui: Ui, model: &Rc<Model>) -> Page {
             .section(transitions.row(duration))
             .section(Caption::new(
                 &ui,
-                "Changes are saved now and take effect after restarting Rift.",
+                "更改会立即保存，并在重新启动 Rift 后生效。",
             )),
     )
 }
@@ -139,7 +140,7 @@ pub(super) fn stack_tabs(ui: Ui, model: &Rc<Model>) -> Page {
     f.tooltips = true;
     let preview = Rc::new(StackPreview::new(&ui));
     preview.height(280.0);
-    preview.accessibility_label("Stack Tabs preview. Select an example window using its tab.");
+    preview.accessibility_label("堆叠标签预览。点击标签可选择示例窗口。");
     f.sync_when(
         &preview,
         |s| s.settings.ui.stack_line.clone(),
@@ -151,20 +152,20 @@ pub(super) fn stack_tabs(ui: Ui, model: &Rc<Model>) -> Page {
         |s| s.settings.ui.stack_line.enabled,
         |caption, s| {
             caption.set_text(if s.settings.ui.stack_line.enabled {
-                "Example macOS apps. Select or close a tab."
+                "macOS 应用程序示例。可选择或关闭标签。"
             } else {
-                "Tabs are hidden. Example windows remain stacked."
+                "标签已隐藏，示例窗口保持堆叠。"
             });
         },
     );
     let interaction = f.fields(
-        Section::new(&ui, "Behavior"),
+        Section::new(&ui, "行为"),
         &["enabled", "hover"],
         |s| &s.settings.ui.stack_line,
         |s| &mut s.settings.ui.stack_line,
     );
     let reset_preview = Rc::downgrade(&preview);
-    let reset = Button::new(&ui, "Reset preview").borderless().on_click(move || {
+    let reset = Button::new(&ui, "重置预览").borderless().on_click(move || {
         if let Some(preview) = reset_preview.upgrade() {
             preview.reset();
         }
@@ -179,7 +180,7 @@ pub(super) fn stack_tabs(ui: Ui, model: &Rc<Model>) -> Page {
         }
     }));
     let placement = f.fields(
-        Section::new(&ui, "Placement & size"),
+        Section::new(&ui, "位置与尺寸"),
         &["horiz_placement", "vert_placement"],
         |s| &s.settings.ui.stack_line,
         |s| &mut s.settings.ui.stack_line,
@@ -188,7 +189,7 @@ pub(super) fn stack_tabs(ui: Ui, model: &Rc<Model>) -> Page {
     for (key, title, min, max, get, set) in [
         (
             "thickness",
-            "Thickness",
+            "厚度",
             20.0,
             64.0,
             (|s: &ConfigSource| s.settings.ui.stack_line.thickness) as fn(&ConfigSource) -> f64,
@@ -197,7 +198,7 @@ pub(super) fn stack_tabs(ui: Ui, model: &Rc<Model>) -> Page {
         ),
         (
             "spacing",
-            "Spacing",
+            "间距",
             0.0,
             100.0,
             (|s: &ConfigSource| s.settings.ui.stack_line.spacing) as fn(&ConfigSource) -> f64,

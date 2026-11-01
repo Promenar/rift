@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use rift_protocol::{
     Direction, DisplaySelector, LayoutCommand as L, ReactorCommand as R, ResizeOrientation,
 };
@@ -13,128 +14,128 @@ fn actions() -> &'static [(&'static str, WmCommand)] {
     static ACTIONS: std::sync::LazyLock<Vec<(&'static str, WmCommand)>> =
         std::sync::LazyLock::new(|| {
             vec![
-                ("Focus · Move focus", layout(L::MoveFocus(Direction::Left))),
-                ("Focus · Next window", layout(L::NextWindow)),
-                ("Focus · Previous window", layout(L::PrevWindow)),
-                ("Focus · Ascend", layout(L::Ascend)),
-                ("Focus · Descend", layout(L::Descend)),
-                ("Window · Move window", layout(L::MoveNode(Direction::Left))),
-                ("Window · Join window", layout(L::JoinWindow(Direction::Left))),
+                ("聚焦 · 移动焦点", layout(L::MoveFocus(Direction::Left))),
+                ("聚焦 · 下一个窗口", layout(L::NextWindow)),
+                ("聚焦 · 上一个窗口", layout(L::PrevWindow)),
+                ("聚焦 · 上一级", layout(L::Ascend)),
+                ("聚焦 · 下一级", layout(L::Descend)),
+                ("窗口 · 移动窗口", layout(L::MoveNode(Direction::Left))),
+                ("窗口 · 合并窗口", layout(L::JoinWindow(Direction::Left))),
                 (
-                    "Window · Consume or expel",
+                    "窗口 · 纳入或移出堆叠",
                     layout(L::ConsumeOrExpelWindow(Direction::Left)),
                 ),
-                ("Window · Toggle floating", layout(L::ToggleWindowFloating)),
-                ("Window · Toggle focus floating", layout(L::ToggleFocusFloating)),
-                ("Window · Fullscreen", layout(L::ToggleFullscreen)),
+                ("窗口 · 切换浮动状态", layout(L::ToggleWindowFloating)),
+                ("窗口 · 切换平铺与浮动窗口焦点", layout(L::ToggleFocusFloating)),
+                ("窗口 · 切换全屏", layout(L::ToggleFullscreen)),
                 (
-                    "Window · Fullscreen within gaps",
+                    "窗口 · 在间距内切换全屏",
                     layout(L::ToggleFullscreenWithinGaps),
                 ),
                 (
-                    "Window · Grow",
+                    "窗口 · 放大",
                     layout(L::ResizeWindowGrow(ResizeOrientation::Smart)),
                 ),
                 (
-                    "Window · Shrink",
+                    "窗口 · 缩小",
                     layout(L::ResizeWindowShrink(ResizeOrientation::Smart)),
                 ),
-                ("Window · Resize by", layout(L::ResizeWindowBy { amount: 10.0 })),
-                ("Window · Center selection", layout(L::CenterSelection)),
-                ("Window · Close", WmCommand::Wm(WmCmd::CloseWindow)),
+                ("窗口 · 按指定量调整尺寸", layout(L::ResizeWindowBy { amount: 10.0 })),
+                ("窗口 · 居中所选窗口", layout(L::CenterSelection)),
+                ("窗口 · 关闭", WmCommand::Wm(WmCmd::CloseWindow)),
                 (
-                    "Workspace · Switch workspace",
+                    "工作区 · 切换工作区",
                     WmCommand::Wm(WmCmd::SwitchToWorkspace(WorkspaceSelector::Index(0))),
                 ),
                 (
-                    "Workspace · Move window to workspace",
+                    "工作区 · 将窗口移至工作区",
                     WmCommand::Wm(WmCmd::MoveWindowToWorkspace(WorkspaceSelector::Index(0))),
                 ),
-                ("Workspace · Next", WmCommand::Wm(WmCmd::NextWorkspace)),
-                ("Workspace · Previous", WmCommand::Wm(WmCmd::PrevWorkspace)),
-                ("Workspace · Create", WmCommand::Wm(WmCmd::CreateWorkspace)),
+                ("工作区 · 下一个", WmCommand::Wm(WmCmd::NextWorkspace)),
+                ("工作区 · 上一个", WmCommand::Wm(WmCmd::PrevWorkspace)),
+                ("工作区 · 创建", WmCommand::Wm(WmCmd::CreateWorkspace)),
                 (
-                    "Workspace · Last workspace",
+                    "工作区 · 上次使用的工作区",
                     WmCommand::Wm(WmCmd::SwitchToLastWorkspace),
                 ),
                 (
-                    "Workspace · Set layout",
+                    "工作区 · 设置布局",
                     layout(L::SetWorkspaceLayout {
                         workspace: None,
                         mode: rift_protocol::LayoutMode::Traditional,
                     }),
                 ),
                 (
-                    "Display · Focus display",
+                    "显示器 · 聚焦显示器",
                     reactor(R::FocusDisplay(DisplaySelector::Direction(Direction::Left))),
                 ),
                 (
-                    "Display · Move window to display",
+                    "显示器 · 将窗口移至显示器",
                     reactor(R::MoveWindowToDisplay {
                         selector: DisplaySelector::Direction(Direction::Left),
                         window_id: None,
                     }),
                 ),
                 (
-                    "Display · Move workspace to display",
+                    "显示器 · 将工作区移至显示器",
                     reactor(R::MoveWorkspaceToDisplay {
                         selector: DisplaySelector::Direction(Direction::Left),
                         wrap_around: false,
                     }),
                 ),
                 (
-                    "Display · Move pointer to display",
+                    "显示器 · 将指针移至显示器",
                     reactor(R::MoveMouseToDisplay(DisplaySelector::Direction(
                         Direction::Left,
                     ))),
                 ),
                 (
-                    "Space · Switch macOS space",
+                    "空间 · 切换 macOS 空间",
                     reactor(R::SwitchSpace(Direction::Left)),
                 ),
                 (
-                    "Space · Toggle tiling",
+                    "空间 · 切换平铺状态",
                     WmCommand::Wm(WmCmd::ToggleSpaceActivated),
                 ),
-                ("Layout · Toggle stack", layout(L::ToggleStack)),
-                ("Layout · Toggle orientation", layout(L::ToggleOrientation)),
-                ("Layout · Unjoin windows", layout(L::UnjoinWindows)),
-                ("Layout · Scroll strip", layout(L::ScrollStrip { delta: 100.0 })),
-                ("Layout · Snap strip", layout(L::SnapStrip)),
+                ("布局 · 切换堆叠", layout(L::ToggleStack)),
+                ("布局 · 切换方向", layout(L::ToggleOrientation)),
+                ("布局 · 拆分窗口", layout(L::UnjoinWindows)),
+                ("布局 · 滚动条带", layout(L::ScrollStrip { delta: 100.0 })),
+                ("布局 · 对齐条带", layout(L::SnapStrip)),
                 (
-                    "Layout · Next preset width",
+                    "布局 · 切换预设列宽",
                     WmCommand::ConfiguredLayout(ConfiguredLayoutCommand::SwitchPresetColumnWidth),
                 ),
                 (
-                    "Layout · Adjust master ratio",
+                    "布局 · 调整主区域比例",
                     layout(L::AdjustMasterRatio(0.05)),
                 ),
                 (
-                    "Layout · Adjust master count",
+                    "布局 · 调整主区域窗口数",
                     layout(L::AdjustMasterCount { delta: 1 }),
                 ),
-                ("Layout · Promote to master", layout(L::PromoteToMaster)),
-                ("Layout · Swap master and stack", layout(L::SwapMasterStack)),
+                ("布局 · 移至主区域", layout(L::PromoteToMaster)),
+                ("布局 · 交换主区域与堆叠区域", layout(L::SwapMasterStack)),
                 (
-                    "Overview · All workspaces",
+                    "总览 · 所有工作区",
                     WmCommand::Wm(WmCmd::ShowMissionControlAll),
                 ),
                 (
-                    "Overview · Current workspace",
+                    "总览 · 当前工作区",
                     WmCommand::Wm(WmCmd::ShowMissionControlCurrent),
                 ),
-                ("Overview · Dismiss", WmCommand::Wm(WmCmd::DismissMissionControl)),
+                ("总览 · 关闭", WmCommand::Wm(WmCmd::DismissMissionControl)),
                 (
-                    "Rift · Binding mode",
+                    "Rift · 快捷键模式",
                     WmCommand::Wm(WmCmd::BindingMode("default".into())),
                 ),
                 (
-                    "Rift · Run command",
+                    "Rift · 运行命令",
                     WmCommand::Wm(WmCmd::Exec(ExecCmd::String(String::new()))),
                 ),
-                ("Rift · Reload config", WmCommand::Wm(WmCmd::ReloadConfig)),
-                ("Rift · Open Settings", reactor(R::OpenSettings)),
-                ("Rift · Save and exit", reactor(R::SaveAndExit)),
+                ("Rift · 重新载入配置", WmCommand::Wm(WmCmd::ReloadConfig)),
+                ("Rift · 打开设置", reactor(R::OpenSettings)),
+                ("Rift · 保存并退出", reactor(R::SaveAndExit)),
             ]
         });
     &ACTIONS
@@ -155,30 +156,41 @@ fn same_action(a: &WmCommand, b: &WmCommand) -> bool {
         _ => false,
     }
 }
+fn direction_name(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Left => "左",
+        Direction::Right => "右",
+        Direction::Up => "上",
+        Direction::Down => "下",
+    }
+}
+
 fn action_name(cmd: &WmCommand) -> String {
     let title = actions()
         .iter()
         .find(|(_, a)| same_action(a, cmd))
         .map(|(name, _)| name.split_once(" · ").map_or(*name, |(_, action)| action).to_string())
-        .unwrap_or("Custom command".into());
+        .unwrap_or("自定义命令".into());
     let argument = match cmd {
         WmCommand::ReactorCommand(Command::Layout(
             L::MoveFocus(d) | L::MoveNode(d) | L::JoinWindow(d) | L::ConsumeOrExpelWindow(d),
-        )) => format!("{d:?}"),
+        )) => direction_name(*d).into(),
         WmCommand::Wm(WmCmd::SwitchToWorkspace(w) | WmCmd::MoveWindowToWorkspace(w)) => match w {
             WorkspaceSelector::Index(i) => (i + 1).to_string(),
             WorkspaceSelector::Name(n) => n.clone(),
         },
-        WmCommand::Wm(WmCmd::BindingMode(n)) => n.clone(),
+        WmCommand::Wm(WmCmd::BindingMode(n)) => {
+            if n == "default" { "默认".into() } else { n.clone() }
+        }
         WmCommand::ReactorCommand(Command::Reactor(
             R::FocusDisplay(target)
             | R::MoveMouseToDisplay(target)
             | R::MoveWindowToDisplay { selector: target, .. }
             | R::MoveWorkspaceToDisplay { selector: target, .. },
         )) => match target {
-            DisplaySelector::Direction(direction) => format!("{direction:?}"),
+            DisplaySelector::Direction(direction) => direction_name(*direction).into(),
             DisplaySelector::Index(index) => (index + 1).to_string(),
-            DisplaySelector::Uuid(_) => "(specific display)".into(),
+            DisplaySelector::Uuid(_) => "（指定显示器）".into(),
         },
         _ => String::new(),
     };
@@ -287,7 +299,7 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
         SettingsList::<BindingRow>::new(&ui, |row| row.action.clone(), |row| row.shortcut.clone())
             .full_length()
             .trailing_summary()
-            .empty_message("No shortcuts in this shortcut set");
+            .empty_message("此快捷键集中没有快捷键");
     let weak_model = Rc::downgrade(model);
     let mode_edit = mode.clone();
     let editing_table = Rc::new(RefCell::new(Weak::<SettingsList<BindingRow>>::new()));
@@ -347,7 +359,7 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
         if let Some(popup) = weak_popup.upgrade() {
             popup.set_items(modes.iter().map(|v| {
                 if v == "default" {
-                    "Default"
+                    "默认"
                 } else {
                     v.as_str()
                 }
@@ -376,7 +388,7 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
     });
     let weak_table = Rc::downgrade(&table);
     let edit_action = edit_binding.clone();
-    let edit = IconButton::new(&ui, "pencil", "Edit Shortcut…").on_click(move || {
+    let edit = IconButton::new(&ui, "pencil", "编辑快捷键…").on_click(move || {
         if let Some(i) = weak_table.upgrade().and_then(|table| table.selection()) {
             edit_action(i);
         }
@@ -410,12 +422,12 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
     let duplicate_model = Rc::downgrade(model);
     let duplicate_mode = mode.clone();
     let menu = Menu::new(&ui)
-        .item(MenuItem::new(&ui, "Edit Shortcut…").on_click(move || {
+        .item(MenuItem::new(&ui, "编辑快捷键…").on_click(move || {
             if let Some(index) = weak_table.upgrade().and_then(|table| table.selection()) {
                 edit_binding(index);
             }
         }))
-        .item(MenuItem::new(&ui, "Duplicate").on_click(move || {
+        .item(MenuItem::new(&ui, "复制").on_click(move || {
             if let (Some(model), Some(table)) =
                 (duplicate_model.upgrade(), duplicate_table.upgrade())
             {
@@ -435,7 +447,7 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
                 }
             }
         }))
-        .item(MenuItem::new(&ui, "Remove").on_click(move || remove_binding()));
+        .item(MenuItem::new(&ui, "移除").on_click(move || remove_binding()));
     table.set_context_menu(menu);
     controls.set_remove_enabled(false);
     edit.set_enabled(false);
@@ -450,9 +462,9 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
     let menu = Menu::new(&ui);
     let mut managed = Vec::new();
     for (title, operation) in [
-        ("New Shortcut Set…", KeymapOperation::Create),
-        ("Rename Shortcut Set…", KeymapOperation::Rename),
-        ("Delete Shortcut Set…", KeymapOperation::Delete),
+        ("新建快捷键集…", KeymapOperation::Create),
+        ("重命名快捷键集…", KeymapOperation::Rename),
+        ("删除快捷键集…", KeymapOperation::Delete),
     ] {
         let weak_model = Rc::downgrade(model);
         let mode = mode.clone();
@@ -472,11 +484,11 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
             item.set_enabled(*current_mode.borrow() != "default");
         }
     });
-    let management = Popup::actions(&ui, "Shortcut Set Actions", menu);
+    let management = Popup::actions(&ui, "快捷键集操作", menu);
     let combinations = modifier_combinations(&mut f, model);
     let search_model = Rc::downgrade(model);
     let search_table = Rc::downgrade(&table);
-    let search = SearchField::new(&ui).placeholder("Search shortcuts").on_change(move |value| {
+    let search = SearchField::new(&ui).placeholder("搜索快捷键").on_change(move |value| {
         *query.borrow_mut() = value.to_lowercase();
         if let (Some(model), Some(table)) = (search_model.upgrade(), search_table.upgrade()) {
             table.set_rows_if_changed(binding_rows(
@@ -487,11 +499,11 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
         }
     });
     let header =
-        Rc::new(HeaderControls::selector("Shortcut set", popup, search).actions(management));
+        Rc::new(HeaderControls::selector("快捷键集", popup, search).actions(management));
     let mut page = f.finish(
         SettingsPage::new(&ui, "")
             .section(
-                Section::new(&ui, "Keyboard shortcuts")
+                Section::new(&ui, "键盘快捷键")
                     .content(table)
                     .footer(error)
                     .footer(Caption::new(&ui, "⌘ Command   ⌥ Option   ⌃ Control   ⇧ Shift")),
@@ -499,7 +511,7 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
             .bottom_bar(HStack::new(&ui).push(controls).spacer(&ui).push(edit))
             .section(Disclosure::new(
                 &ui,
-                "Advanced: reusable modifier combinations",
+                "高级：可复用修饰键组合",
                 combinations,
             )),
     );
@@ -600,7 +612,7 @@ fn binding_sheet(ui: Ui, model: &Rc<Model>, mode: String, old: Option<String>, c
             .iter()
             .position(|(_, c)| same_action(c, &command))
             .unwrap_or_else(|| {
-                descriptors.push(("Current custom action", command.clone()));
+                descriptors.push(("当前自定义操作", command.clone()));
                 descriptors.len() - 1
             });
     let templates: Vec<_> = descriptors.iter().map(|(_, c)| c.clone()).collect();
@@ -621,13 +633,13 @@ fn binding_sheet(ui: Ui, model: &Rc<Model>, mode: String, old: Option<String>, c
     let message = Rc::new(ValidationMessage::new(&ui));
     let error = Rc::downgrade(&message);
     let weak_model = Rc::downgrade(model);
-    cancel.set_primary_title("Save Shortcut");
+    cancel.set_primary_title("保存快捷键");
     cancel.set_on_done(move || {
         let Some(message) = error.upgrade() else {
             return;
         };
         let Some(key) = key.borrow().clone() else {
-            message.set_validation(&Validation::Error("Record a shortcut first".into()));
+            message.set_validation(&Validation::Error("请先录制快捷键".into()));
             if let Some(model) = weak_model.upgrade()
                 && let Some(sheet) = model.sheet.borrow().as_ref()
             {
@@ -643,7 +655,7 @@ fn binding_sheet(ui: Ui, model: &Rc<Model>, mode: String, old: Option<String>, c
             Box::new(move |s| {
                 let bindings = s.keymap_mut(&mode)?;
                 if old.as_ref() != Some(&key) && bindings.contains_key(&key) {
-                    return Err("This shortcut is already assigned in this shortcut set".into());
+                    return Err("此快捷键已在当前快捷键集中分配".into());
                 }
                 if let Some(old) = old {
                     bindings.remove(&old);
@@ -657,7 +669,7 @@ fn binding_sheet(ui: Ui, model: &Rc<Model>, mode: String, old: Option<String>, c
     show_sheet(
         ui,
         model,
-        "Shortcut",
+        "快捷键",
         VStack::new(&ui)
             .insets(Insets {
                 top: 20.0,
@@ -665,15 +677,15 @@ fn binding_sheet(ui: Ui, model: &Rc<Model>, mode: String, old: Option<String>, c
                 bottom: 20.0,
                 right: 20.0,
             })
-            .push(SectionTitle::new(&ui, "Keyboard Shortcut"))
+            .push(SectionTitle::new(&ui, "键盘快捷键"))
             .push(Caption::new(
                 &ui,
-                "Click the shortcut, then press the keys you want to use.",
+                "点击快捷键，然后按下要使用的按键。",
             ))
             .push(
                 Section::new(&ui, "")
-                    .row(SettingsRow::new(&ui, "Shortcut", recorder))
-                    .row(SettingsRow::new(&ui, "Action", popup)),
+                    .row(SettingsRow::new(&ui, "快捷键", recorder))
+                    .row(SettingsRow::new(&ui, "操作", popup)),
             )
             .push(host)
             .push(message)
@@ -704,7 +716,7 @@ fn argument_editor(
                 Direction::Down,
             ];
             let popup =
-                Popup::new(&ui).items(["Left", "Right", "Up", "Down"]).on_change(move |i| {
+                Popup::new(&ui).items(["左", "右", "上", "下"]).on_change(move |i| {
                     let d = directions[i];
                     *edited.borrow_mut() = match &command {
                         RcCommand(Command::Layout(L::MoveFocus(_))) => layout(L::MoveFocus(d)),
@@ -719,7 +731,7 @@ fn argument_editor(
                     changed();
                 });
             popup.set_selected(directions.iter().position(|v| *v == d).unwrap_or(0));
-            view = view.row(SettingsRow::new(&ui, "Direction", popup));
+            view = view.row(SettingsRow::new(&ui, "方向", popup));
         }
         RcCommand(Command::Layout(L::ResizeWindowGrow(o) | L::ResizeWindowShrink(o))) => {
             let edited = draft.clone();
@@ -730,7 +742,7 @@ fn argument_editor(
                 ResizeOrientation::Vertical,
             ];
             let popup =
-                Popup::new(&ui).items(["Smart", "Horizontal", "Vertical"]).on_change(move |i| {
+                Popup::new(&ui).items(["智能", "水平", "垂直"]).on_change(move |i| {
                     *edited.borrow_mut() =
                         if matches!(command, RcCommand(Command::Layout(L::ResizeWindowGrow(_)))) {
                             layout(L::ResizeWindowGrow(values[i]))
@@ -741,7 +753,7 @@ fn argument_editor(
                     changed();
                 });
             popup.set_selected(values.iter().position(|v| *v == o).unwrap_or(0));
-            view = view.row(SettingsRow::new(&ui, "Orientation", popup));
+            view = view.row(SettingsRow::new(&ui, "方向", popup));
         }
         Wm(WmCmd::SwitchToWorkspace(target) | WmCmd::MoveWindowToWorkspace(target)) => {
             let names: Vec<_> =
@@ -772,7 +784,7 @@ fn argument_editor(
                 changed();
             });
             popup.set_selected(initial);
-            view = view.row(SettingsRow::new(&ui, "Workspace", popup));
+            view = view.row(SettingsRow::new(&ui, "工作区", popup));
         }
         RcCommand(Command::Layout(L::SetWorkspaceLayout { mode, workspace })) => {
             let values = super::pages::layouts();
@@ -788,7 +800,7 @@ fn argument_editor(
                     changed();
                 });
             popup.set_selected(selected);
-            view = view.row(SettingsRow::new(&ui, "Layout", popup));
+            view = view.row(SettingsRow::new(&ui, "布局", popup));
         }
         RcCommand(Command::Reactor(
             R::FocusDisplay(target)
@@ -804,10 +816,10 @@ fn argument_editor(
             ];
             let mut values = values;
             let mut names = vec![
-                "Left".to_string(),
-                "Right".into(),
-                "Up".into(),
-                "Down".into(),
+                "左".to_string(),
+                "右".into(),
+                "上".into(),
+                "下".into(),
             ];
             for display in model.env.displays.borrow().iter() {
                 values.push(DisplaySelector::Uuid(display.display_uuid.clone()));
@@ -815,12 +827,12 @@ fn argument_editor(
                     display
                         .name
                         .clone()
-                        .unwrap_or_else(|| format!("Display {}", display.id.as_u32())),
+                        .unwrap_or_else(|| format!("显示器 {}", display.id.as_u32())),
                 );
             }
             let selected = values.iter().position(|value| *value == target).unwrap_or_else(|| {
                 values.push(target);
-                names.push("Current display target".into());
+                names.push("当前目标显示器".into());
                 values.len() - 1
             });
             let edited = draft.clone();
@@ -850,7 +862,7 @@ fn argument_editor(
                 changed();
             });
             popup.set_selected(selected);
-            view = view.row(SettingsRow::new(&ui, "Display direction", popup));
+            view = view.row(SettingsRow::new(&ui, "显示器方向", popup));
         }
         RcCommand(Command::Layout(
             L::ResizeWindowBy { amount }
@@ -872,14 +884,14 @@ fn argument_editor(
 
                 changed();
             });
-            view = view.row(SettingsRow::new(&ui, "Amount", input));
+            view = view.row(SettingsRow::new(&ui, "调整量", input));
         }
         RcCommand(Command::Layout(L::AdjustMasterCount { delta })) => {
             let edited = draft.clone();
             let changed = changed.clone();
             view = view.row(SettingsRow::new(
                 &ui,
-                "Change in window count",
+                "窗口数量变化",
                 NumberField::new(&ui).integer().value(delta as f64).on_edit(move |v| {
                     *edited.borrow_mut() = layout(L::AdjustMasterCount { delta: v as i32 });
 
@@ -894,20 +906,24 @@ fn argument_editor(
             let choices = names.clone();
             let edited = draft.clone();
             let changed = changed.clone();
-            let popup = Popup::new(&ui).items(names).on_change(move |i| {
-                *edited.borrow_mut() = Wm(WmCmd::BindingMode(choices[i].clone()));
+            let popup = Popup::new(&ui)
+                .items(names.iter().map(|name| {
+                    if name == "default" { "默认" } else { name.as_str() }
+                }))
+                .on_change(move |i| {
+                    *edited.borrow_mut() = Wm(WmCmd::BindingMode(choices[i].clone()));
 
-                changed();
-            });
+                    changed();
+                });
             popup.set_selected(selected);
-            view = view.row(SettingsRow::new(&ui, "Keymap", popup));
+            view = view.row(SettingsRow::new(&ui, "快捷键集", popup));
         }
         Wm(WmCmd::Exec(ExecCmd::String(text))) => {
             let edited = draft.clone();
             let changed = changed.clone();
             view = view.row(SettingsRow::new(
                 &ui,
-                "Shell command",
+                "Shell 命令",
                 TextField::new(&ui).value(&text).on_change(move |v| {
                     *edited.borrow_mut() = Wm(WmCmd::Exec(ExecCmd::String(v)));
 
@@ -918,7 +934,7 @@ fn argument_editor(
         _ if !actions().iter().any(|(_, template)| same_action(template, &command)) => {
             view = view.content(SecondaryLabel::new(
                 &ui,
-                "Existing arguments are retained. Choose another action to replace them.",
+                "现有参数将被保留。选择其他操作可将其替换。",
             ));
         }
         _ => {}
@@ -955,9 +971,9 @@ fn mode_sheet(ui: Ui, model: &Rc<Model>, old: String, operation: KeymapOperation
     let error = Rc::downgrade(&message);
     let weak_model = Rc::downgrade(model);
     cancel.set_primary_title(if operation == KeymapOperation::Delete {
-        "Delete Keymap"
+        "删除快捷键集"
     } else {
-        "Save"
+        "保存"
     });
     cancel.set_on_done(move || {
         let (Some(input), Some(message)) = (weak_input.upgrade(), error.upgrade()) else {
@@ -984,16 +1000,16 @@ fn mode_sheet(ui: Ui, model: &Rc<Model>, old: String, operation: KeymapOperation
     if operation == KeymapOperation::Delete {
         content = content.push(Label::new(
             &ui,
-            "Delete this keymap and its shortcuts? References will switch to Default.",
+            "删除此快捷键集及其快捷键？相关引用将切换到默认快捷键集。",
         ));
     } else {
-        content = content.push(SettingsRow::new(&ui, "Name", input));
+        content = content.push(SettingsRow::new(&ui, "名称", input));
     }
-    show_sheet(ui, model, "Keymap", content.push(message).push(cancel));
+    show_sheet(ui, model, "快捷键集", content.push(message).push(cancel));
 }
 fn modifier_combinations(f: &mut FormBuilder, model: &Rc<Model>) -> VStack {
     let ui = f.ui;
-    let name = Rc::new(TextField::new(&ui).placeholder("Name"));
+    let name = Rc::new(TextField::new(&ui).placeholder("名称"));
     let modifiers = Rc::new(RefCell::new(String::new()));
     let changed = modifiers.clone();
     let recorder = ModifierRecorder::new(&ui).on_change(move |flags| {
@@ -1009,7 +1025,7 @@ fn modifier_combinations(f: &mut FormBuilder, model: &Rc<Model>) -> VStack {
     let error = Rc::downgrade(&message);
     let weak_model = Rc::downgrade(model);
     let weak_name = Rc::downgrade(&name);
-    let add = Button::new(&ui, "Add / Update").on_click(move || {
+    let add = Button::new(&ui, "添加 / 更新").on_click(move || {
         if let Some(name) = weak_name.upgrade() {
             let name = name.get_value().trim().to_string();
             let value = modifiers.borrow().clone();
@@ -1017,7 +1033,7 @@ fn modifier_combinations(f: &mut FormBuilder, model: &Rc<Model>) -> VStack {
                 &weak_model,
                 Box::new(move |s| {
                     if name.is_empty() || name.contains('+') || value.is_empty() {
-                        return Err("Enter a name and record modifiers".into());
+                        return Err("请输入名称并录制修饰键".into());
                     }
                     s.modifier_combinations.insert(name, value);
                     Ok(())

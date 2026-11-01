@@ -1,3 +1,4 @@
+// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 use objc2_app_kit::NSAccessibility;
 
 use super::*;
@@ -23,15 +24,15 @@ pub(super) fn layout_title(mode: LayoutMode) -> &'static str {
 
 fn insertion() -> Vec<(&'static str, WindowInsertionPoint)> {
     vec![
-        ("Next to selection", WindowInsertionPoint::NextToSelection),
-        ("End of layout", WindowInsertionPoint::EndOfTree),
+        ("所选窗口旁边", WindowInsertionPoint::NextToSelection),
+        ("布局末尾", WindowInsertionPoint::EndOfTree),
     ]
 }
-fn bool_choices() -> Vec<(&'static str, bool)> { vec![("Enabled", true), ("Disabled", false)] }
+fn bool_choices() -> Vec<(&'static str, bool)> { vec![("启用", true), ("停用", false)] }
 fn arrangement() -> Vec<(&'static str, Orientation)> {
     vec![
-        ("Horizontal", Orientation::Horizontal),
-        ("Vertical", Orientation::Vertical),
+        ("水平", Orientation::Horizontal),
+        ("垂直", Orientation::Vertical),
     ]
 }
 
@@ -54,7 +55,7 @@ pub(super) fn build(ui: Ui, model: &Rc<Model>, id: Category) -> Page {
 fn general(ui: Ui, model: &Rc<Model>) -> Page {
     let mut f = FormBuilder::new(ui, model);
     let section = f.schema_section(
-        "Window behavior",
+        "窗口行为",
         "general",
         |s| &s.settings,
         |s| &mut s.settings,
@@ -104,9 +105,9 @@ fn about_identity(ui: &Ui) -> VStack {
     });
     emblem.width(268.0);
     emblem.height(144.0);
-    emblem.accessibility_label("Rearrange windows");
-    emblem.accessibility_help("Show another Rift layout. Respects Reduce Motion.");
-    emblem.tooltip("A place for every window. Click to try another layout.");
+    emblem.accessibility_label("重新排列窗口");
+    emblem.accessibility_help("展示另一种 Rift 布局，并遵循“减弱动态效果”设置。");
+    emblem.tooltip("让每个窗口各得其所。点击以尝试另一种布局。");
     emblem.ns_button().setFocusRingType(objc2_app_kit::NSFocusRingType::Exterior);
     emblem.ns_view().addSubview(preview.ns_view());
     preview
@@ -135,7 +136,7 @@ fn about_identity(ui: &Ui) -> VStack {
             &cgs::Color::label(),
         ))
         .push(centered(
-            &format!("Version {}", env!("CARGO_PKG_VERSION")),
+            &format!("版本 {}", env!("CARGO_PKG_VERSION")),
             &Font::caption(),
             &cgs::Color::secondary_label(),
         ))
@@ -143,15 +144,15 @@ fn about_identity(ui: &Ui) -> VStack {
 }
 
 fn about_updates(ui: &Ui, env: &Rc<Env>) -> Section {
-    let status = Rc::new(Label::new(ui, "Not checked yet").wrapping().color(&cgs::Color::label()));
-    status.accessibility_label("Update status");
+    let status = Rc::new(Label::new(ui, "尚未检查").wrapping().color(&cgs::Color::label()));
+    status.accessibility_label("更新状态");
     let icon = Rc::new(ImageView::symbol(ui, "arrow.triangle.2.circlepath").unwrap());
     icon.width(16.0);
     icon.height(16.0);
     icon.ns_image_view().setContentTintColor(Some(&cgs::Color::secondary_label()));
     icon.ns_view().setAccessibilityElement(false);
-    let check = Button::new(ui, "Check for Updates…");
-    check.accessibility_label("Check for Updates…");
+    let check = Button::new(ui, "检查更新…");
+    check.accessibility_label("检查更新…");
     let weak_button = WeakView::new(&check);
     let weak_status = Rc::downgrade(&status);
     let weak_icon = Rc::downgrade(&icon);
@@ -159,7 +160,7 @@ fn about_updates(ui: &Ui, env: &Rc<Env>) -> Section {
     let check = check.on_click(move || {
         let Some(env) = weak_env.upgrade() else { return };
         if let Some(status) = weak_status.upgrade() {
-            status.set_text("Checking for updates…");
+            status.set_text("正在检查更新…");
             status.ns_text_field().setTextColor(Some(&cgs::Color::label()));
         }
         if let Some(icon) = weak_icon.upgrade() {
@@ -174,12 +175,12 @@ fn about_updates(ui: &Ui, env: &Rc<Env>) -> Section {
             Action::CheckUpdates(Box::new(move |result| {
                 let (text, symbol, color) = match result {
                     Ok(updates::Release::Current) => (
-                        "Rift is up to date.".to_owned(),
+                        "Rift 已是最新版本。".to_owned(),
                         "checkmark.circle",
                         cgs::Color::secondary_label(),
                     ),
                     Ok(updates::Release::Available(version)) => (
-                        format!("Version {version} is available."),
+                        format!("版本 {version} 已可用。"),
                         "arrow.down.circle",
                         cgs::Color::control_accent(),
                     ),
@@ -208,27 +209,27 @@ fn about_updates(ui: &Ui, env: &Rc<Env>) -> Section {
         .push(Spacer::new(ui))
         .push(check);
     row.min_height(24.0);
-    Section::new(ui, "Software Update").content(GroupBox::new(ui, row))
+    Section::new(ui, "软件更新").content(GroupBox::new(ui, row))
 }
 
 fn about_resources(ui: &Ui) -> Section {
     const RESOURCES: [(&str, &str, &str); 4] = [
         (
-            "Documentation",
+            "文档",
             "book",
             "https://acsandmann.github.io/rift-docs/",
         ),
         (
-            "Release Notes",
+            "发行说明",
             "clock.arrow.circlepath",
             "https://github.com/acsandmann/rift/releases",
         ),
         (
-            "Matrix Room",
+            "Matrix 聊天室",
             "bubble.left.and.bubble.right",
             "https://matrix.to/#/#rift:matrix.org",
         ),
-        ("Sponsor Rift", "heart", "https://github.com/sponsors/acsandmann"),
+        ("赞助 Rift", "heart", "https://github.com/sponsors/acsandmann"),
     ];
     let resource_group = |rows: Vec<(&'static str, &'static str, &'static str)>| {
         let destinations = rows.clone();
@@ -248,7 +249,7 @@ fn about_resources(ui: &Ui) -> Section {
         list.set_rows(rows);
         list
     };
-    Section::new(ui, "Resources").content(
+    Section::new(ui, "资源").content(
         VStack::new(ui)
             .spacing(12.0)
             .push(resource_group(RESOURCES[..3].to_vec()))
@@ -268,12 +269,12 @@ fn about(ui: Ui, env: &Rc<Env>) -> SettingsPage {
     heart
         .ns_image_view()
         .setContentTintColor(Some(&objc2_app_kit::NSColor::systemRedColor()));
-    heart.accessibility_label("love");
+    heart.accessibility_label("爱心");
     let credit = HStack::new(&ui)
         .spacing(4.0)
-        .push(caption("made with"))
+        .push(caption("用心制作"))
         .push(heart)
-        .push(caption("by acsandmann"));
+        .push(caption("作者：acsandmann"));
     let (leading, trailing) = (Spacer::new(&ui), Spacer::new(&ui));
     let equal = leading
         .ns_view()
@@ -314,13 +315,13 @@ fn about(ui: Ui, env: &Rc<Env>) -> SettingsPage {
 /// The shared new-window position each layout follows unless it overrides it.
 pub(super) fn window_position(f: &mut FormBuilder) -> SettingsRow {
     f.inherited_popup(
-        "New window position",
+        "新窗口位置",
         insertion(),
         |s| s.settings.layout.base.window_insertion_point,
         |_| WindowInsertionPoint::default(),
         |s, v| s.settings.layout.base.window_insertion_point = v,
     )
-    .tooltip("Where layouts insert new windows, unless a layout chooses its own.")
+    .tooltip("设置各布局插入新窗口的位置；布局可单独覆盖此设置。")
 }
 
 /// A screen-shaped spacing preview, 16:10 like a Mac display.
@@ -364,14 +365,14 @@ pub(super) fn gap_preview(
     });
     f.live_preview = Some(update.clone());
     f.sync.push(Box::new(move |source| update(source)));
-    preview.accessibility_label("Preview of screen edges and spacing between windows");
+    preview.accessibility_label("屏幕边缘与窗口间距预览");
     preview
 }
 
 /// Screen edges, in the order spacing editors list them.
-pub(super) const EDGES: [&str; 4] = ["Top", "Right", "Bottom", "Left"];
+pub(super) const EDGES: [&str; 4] = ["上", "右", "下", "左"];
 /// Directions between windows.
-pub(super) const AXES: [&str; 2] = ["Horizontal", "Vertical"];
+pub(super) const AXES: [&str; 2] = ["水平", "垂直"];
 
 /// An outer edge (`EDGES`) or inner axis (`AXES`) of the effective spacing.
 /// `None` reads the first and writes every one.
@@ -446,8 +447,8 @@ pub(super) fn layout_spacing(ui: Ui, model: &Rc<Model>) -> Page {
     let mut simple = Section::form(&ui, "");
     let mut detailed = Section::form(&ui, "");
     for (outer, title, names) in [
-        (true, "Screen edges", &EDGES[..]),
-        (false, "Between windows", &AXES[..]),
+        (true, "屏幕边缘", &EDGES[..]),
+        (false, "窗口之间", &AXES[..]),
     ] {
         let (slider, input, message) = f.numeric_controls(
             title,
@@ -492,14 +493,14 @@ pub(super) fn layout_spacing(ui: Ui, model: &Rc<Model>) -> Page {
     simple.set_hidden(custom);
     detailed.set_hidden(!custom);
     let (weak_simple, weak_detailed) = (Rc::downgrade(&simple), Rc::downgrade(&detailed));
-    let mode = SegmentedControl::new(&ui, &["Simple", "Custom"]).on_change(move |index| {
+    let mode = SegmentedControl::new(&ui, &["简易", "自定"]).on_change(move |index| {
         if let (Some(simple), Some(detailed)) = (weak_simple.upgrade(), weak_detailed.upgrade()) {
             simple.set_hidden(index != 0);
             detailed.set_hidden(index == 0);
         }
     });
     mode.set_selected(usize::from(custom));
-    mode.accessibility_label("Spacing controls");
+    mode.accessibility_label("间距控制");
     let page = VStack::new(&ui)
         .spacing(12.0)
         .push(stage(&ui, preview, Some(Box::new(mode))))
@@ -547,11 +548,11 @@ pub(super) fn percentage_text(ratio: f64) -> String {
 }
 
 type Following = (&'static str, &'static str, fn(&str) -> String);
-const SHARED_POSITION: Following = ("Use shared setting", "Shared", |value| {
-    format!("Shared setting: {value}")
+const SHARED_POSITION: Following = ("使用共享设置", "共享", |value| {
+    format!("共享设置：{value}")
 });
-const AUTOMATIC: Following = ("Automatic", "Automatic", |value| {
-    format!("{value}, to suit the master side")
+const AUTOMATIC: Following = ("自动", "自动", |value| {
+    format!("{value}，与主区域位置相适应")
 });
 
 pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Page {
@@ -568,22 +569,22 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
         Section::form(&ui, "").content(title)
     };
     let options = || match mode {
-        LayoutMode::MasterStack => subsection("Master area"),
-        LayoutMode::Scrolling => subsection("Column sizing"),
+        LayoutMode::MasterStack => subsection("主区域"),
+        LayoutMode::Scrolling => subsection("列尺寸"),
         _ => Section::form(&ui, ""),
     };
     // A layout either follows the shared position or overrides it.
     macro_rules! insertion_point {
         ($layout:ident) => {
             f.following_popup(
-                "New window position",
+                "新窗口位置",
                 SHARED_POSITION,
                 insertion(),
                 |s| s.settings.layout.$layout.base.window_insertion_point,
                 |s| s.settings.layout.base.window_insertion_point.unwrap_or_default(),
                 |s, v| s.settings.layout.$layout.base.window_insertion_point = v,
             )
-            .tooltip("Where this layout inserts new windows. Use shared setting follows New window position in Shared settings.")
+            .tooltip("设置此布局插入新窗口的位置。“使用共享设置”沿用“共享设置”中的“新窗口位置”。")
         };
     }
     let mut page = VStack::new(&ui).spacing(12.0);
@@ -608,7 +609,7 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
         LayoutMode::MasterStack => {
             let master = options().row(
                 f.percentage(
-                    "Master width",
+                    "主区域宽度",
                     |_| (5.0, 95.0),
                     |s| s.settings.layout.master_stack.master_ratio,
                     |s, v| s.settings.layout.master_stack.master_ratio = v,
@@ -626,13 +627,13 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
                 MasterStackSide::Top | MasterStackSide::Bottom => Orientation::Horizontal,
             };
             f.fields(
-                subsection("Arrangement"),
+                subsection("排列方式"),
                 &["new_window_placement"],
                 |s| &s.settings.layout.master_stack,
                 |s| &mut s.settings.layout.master_stack,
             )
             .row(f.following_popup(
-                "Master arrangement",
+                "主区域排列",
                 AUTOMATIC,
                 arrangement(),
                 |s| s.settings.layout.master_stack.master_arrangement,
@@ -640,7 +641,7 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
                 |s, v| s.settings.layout.master_stack.master_arrangement = v,
             ))
             .row(f.following_popup(
-                "Stack arrangement",
+                "从区域排列",
                 AUTOMATIC,
                 arrangement(),
                 |s| s.settings.layout.master_stack.stack_arrangement,
@@ -653,7 +654,7 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
             let sizing = options()
                 .row(
                     f.percentage(
-                        "Default column width",
+                        "默认列宽",
                         |s| {
                             let scrolling = &s.settings.layout.scrolling;
                             (
@@ -679,7 +680,7 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
             ));
             let navigation = f
                 .fields(
-                    subsection("Navigation"),
+                    subsection("导航"),
                     &["alignment", "focus_navigation_style"],
                     |s| &s.settings.layout.scrolling,
                     |s| &mut s.settings.layout.scrolling,
@@ -687,15 +688,15 @@ pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Pag
                 // Unset means animated, so only turning it off is written.
                 .row(
                     f.switch(
-                        "Animate navigation",
+                        "导航动画",
                         |s| s.settings.layout.scrolling.animate.unwrap_or(true),
                         |s, v| s.settings.layout.scrolling.animate = (!v).then_some(false),
                     )
-                    .description("Recommended")
-                    .tooltip("Recommended. Motion shows where columns move as the strip scrolls."),
+                    .description("推荐")
+                    .tooltip("推荐。滚动布局条带时，动画可展示各列的移动方向。"),
                 );
             page = page.push(navigation);
-            subsection("Window placement").row(insertion_point!(scrolling))
+            subsection("窗口放置").row(insertion_point!(scrolling))
         }
         LayoutMode::Floating => return f.finish(page),
     };
@@ -717,9 +718,9 @@ fn aspect_ratio(f: &mut FormBuilder) -> SettingsRow {
         let change = change.clone();
         move |value| change(Some(value))
     }));
-    field.accessibility_label("Width-to-height ratio");
+    field.accessibility_label("宽高比");
     let model = f.model.clone();
-    let mode = Rc::new(Popup::new(&ui).sections([["Automatic"], ["Custom"]]).on_change(
+    let mode = Rc::new(Popup::new(&ui).sections([["自动"], ["自定"]]).on_change(
         move |index| {
             let custom = model.upgrade().and_then(|model| ratio(&model.source.borrow()));
             change(if index == 0 {
@@ -729,15 +730,15 @@ fn aspect_ratio(f: &mut FormBuilder) -> SettingsRow {
             });
         },
     ));
-    mode.accessibility_label("Single window aspect ratio");
-    mode.set_item_badge(0, Some("Default"));
+    mode.accessibility_label("单窗口宽高比");
+    mode.set_item_badge(0, Some("默认"));
     let value = field.unit_field(&ui, ": 1");
     value.width(Metrics::VALUE_FIELD_WIDTH);
     let custom = Rc::new(
         HStack::new(&ui)
             .spacing(8.0)
             .push(value)
-            .push(Caption::single_line(&ui, "1.78 is 16:9")),
+            .push(Caption::single_line(&ui, "1.78 即 16:9")),
     );
     let weak = Rc::downgrade(&custom);
     f.sync_when(&mode, ratio, move |mode, s| {
@@ -750,8 +751,8 @@ fn aspect_ratio(f: &mut FormBuilder) -> SettingsRow {
         field.set_value(ratio(s).unwrap_or(SIXTEEN_NINE))
     });
     let control = HStack::new(&ui).spacing(10.0).push(mode).push(custom).keep(field);
-    f.row("Single window aspect ratio", control, message).tooltip(
-        "Automatic fills the available space with a single window. Custom keeps it at a fixed width-to-height shape.",
+    f.row("单窗口宽高比", control, message).tooltip(
+        "“自动”让单个窗口填满可用空间；“自定”让其保持固定宽高比。",
     )
 }
 
@@ -774,7 +775,7 @@ fn width_presets(f: &mut FormBuilder) -> SettingsRow {
     };
     let model = f.model.clone();
     let chips = Rc::new(
-        ValueChips::new(&f.ui, "Width preset", "%", 5.0, 100.0)
+        ValueChips::new(&f.ui, "预设宽度", "%", 5.0, 100.0)
             .compact()
             .format(|percent| percentage_text(percent / 100.0))
             .on_edit(move |edit| {
@@ -807,8 +808,8 @@ fn width_presets(f: &mut FormBuilder) -> SettingsRow {
             chips.set_values(&widths.iter().map(|width| width * 100.0).collect::<Vec<_>>());
         },
     );
-    f.row("Width presets", chips, message).tooltip(
-        "Column widths the preset column width command cycles through, as percentages of the screen width. Drag widths to reorder them; click to adjust, or hover to remove.",
+    f.row("预设宽度", chips, message).tooltip(
+        "“切换预设列宽”命令依次使用的列宽，以屏幕宽度百分比表示。拖动可调整顺序，点击可修改，将指针悬停其上可移除。",
     )
 }
 
@@ -838,7 +839,8 @@ fn stretches(view: &objc2_app_kit::NSView) -> bool {
 }
 
 /// The narrowest label column on the Layouts page, so its forms share one control edge.
-pub(super) const LABEL_COLUMN: f64 = 180.0;
+// 中文标签使用更紧凑的基础列宽，为窄窗口中的滑块和数值框保留空间。
+pub(super) const LABEL_COLUMN: f64 = 112.0;
 
 /// Give every form grid in `view` the same label column and trailing control edge, so
 /// rows in separate subsections and groups line up, with sliders spanning between.
@@ -890,10 +892,10 @@ pub(super) fn align_form(view: &objc2_app_kit::NSView) {
 fn input(ui: Ui, model: &Rc<Model>) -> Page {
     let mut f = FormBuilder::new(ui, model);
     let mut page = SettingsPage::new(&ui, "");
-    let section = f.schema_section("Focus", "pointer", |s| &s.settings, |s| &mut s.settings);
+    let section = f.schema_section("聚焦", "pointer", |s| &s.settings, |s| &mut s.settings);
     page = page.section(section);
     let section = f.schema_section(
-        "Workspace swipes",
+        "工作区轻扫",
         "main",
         |s| &s.settings.gestures,
         |s| &mut s.settings.gestures,
@@ -904,9 +906,9 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
         |s| &s.settings.gestures,
         |s| &mut s.settings.gestures,
     );
-    page = page.section(section.content(Disclosure::new(&ui, "Advanced swipe settings", tuning)));
-    let mut section = Section::new(&ui, "Scrolling layout gestures")
-        .description("These gestures navigate the Scrolling layout strip.");
+    page = page.section(section.content(Disclosure::new(&ui, "高级轻扫设置", tuning)));
+    let mut section = Section::new(&ui, "滚动布局手势")
+        .description("这些手势用于导航滚动布局条带。");
     let mut tuning = Section::new(&ui, "");
     for field in ScrollingGestureSettings::fields() {
         let row = if field.key == "animate" {
@@ -934,20 +936,20 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
         }
     }
     page =
-        page.section(section.content(Disclosure::new(&ui, "Advanced scrolling settings", tuning)));
+        page.section(section.content(Disclosure::new(&ui, "高级滚动设置", tuning)));
     let section = f.schema_section(
-        "Drag & Drop",
+        "拖放",
         "",
         |s| &s.settings.drag_drop,
         |s| &mut s.settings.drag_drop,
     );
     page = page.section(section);
-    let section = Section::new(&ui, "Pointer movement").row(f.popup(
-        "Horizontal pointer warp",
+    let section = Section::new(&ui, "指针移动").row(f.popup(
+        "指针水平边界穿越",
         vec![
-            ("Disabled", None),
-            ("Top to bottom", Some(HorizontalMouseWarp::TopToBottom)),
-            ("Bottom to top", Some(HorizontalMouseWarp::BottomToTop)),
+            ("停用", None),
+            ("从顶部到底部", Some(HorizontalMouseWarp::TopToBottom)),
+            ("从底部到顶部", Some(HorizontalMouseWarp::BottomToTop)),
         ],
         |s| s.settings.horizontal_mouse_warp,
         |s, v| s.settings.horizontal_mouse_warp = v,
@@ -955,7 +957,7 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
     page = page.section(section);
     page = page.section(Disclosure::new(
         &ui,
-        "Advanced focus settings",
+        "高级聚焦设置",
         focus_suspend(&mut f),
     ));
     f.finish(page)
@@ -969,11 +971,11 @@ fn advanced(ui: Ui, model: &Rc<Model>) -> Page {
     let error = Rc::downgrade(&message);
     let env = Rc::downgrade(&model.env);
     let actions = HStack::new(&ui)
-        .push(Button::new(&ui, "Open…").on_click(move || {
+        .push(Button::new(&ui, "打开…").on_click(move || {
             Application::open(&open);
         }))
-        .push(Button::new(&ui, "Reveal in Finder").on_click(move || Application::reveal(&reveal)))
-        .push(Button::new(&ui, "Reload").on_click(move || {
+        .push(Button::new(&ui, "在访达中显示").on_click(move || Application::reveal(&reveal)))
+        .push(Button::new(&ui, "重新载入").on_click(move || {
             if let Some(env) = env.upgrade() {
                 let error = error.clone();
                 env.send(Action::Reload, Box::new(move |result| report(&error, &result)));
@@ -983,7 +985,7 @@ fn advanced(ui: Ui, model: &Rc<Model>) -> Page {
     location.tooltip(&path);
     let file = f
         .fields(
-            Section::new(&ui, "Configuration file").content(location),
+            Section::new(&ui, "配置文件").content(location),
             &["hot_reload"],
             |s| &s.settings,
             |s| &mut s.settings,
@@ -992,13 +994,13 @@ fn advanced(ui: Ui, model: &Rc<Model>) -> Page {
         .footer(message);
     let startup = super::editors::strings(
         &mut f,
-        "Startup commands",
+        "启动命令",
         |s| s.settings.run_on_start.clone(),
         |s, values| s.settings.run_on_start = values,
     );
     let blacklist = super::editors::strings(
         &mut f,
-        "Autofocus blacklist",
+        "自动聚焦排除列表",
         |s| s.settings.auto_focus_blacklist.clone(),
         |s, values| s.settings.auto_focus_blacklist = values,
     );
@@ -1015,7 +1017,7 @@ pub(super) fn optional_number(value: &str) -> Result<Option<f64>, String> {
         .ok()
         .filter(|v| v.is_finite())
         .map(Some)
-        .ok_or_else(|| "Enter a number, or leave blank to use Default".into())
+        .ok_or_else(|| "输入数字，留空则使用默认值".into())
 }
 
 fn focus_suspend(f: &mut FormBuilder) -> Section {
@@ -1093,11 +1095,11 @@ fn focus_suspend(f: &mut FormBuilder) -> Section {
             recorder.set_enabled(s.settings.focus_follows_mouse);
         },
     );
-    let clear = Button::new(&ui, "Clear").on_click(move || submit(None));
-    Section::new(&ui, "Suspend pointer focus while held")
-        .description("Record either a shortcut or modifiers. Recording one replaces the other.")
-        .row(SettingsRow::new(&ui, "Shortcut", recorder))
-        .row(SettingsRow::new(&ui, "Modifiers only", modifier_recorder))
+    let clear = Button::new(&ui, "清除").on_click(move || submit(None));
+    Section::new(&ui, "按住时暂停指针聚焦")
+        .description("可录制快捷键或修饰键，录制其中一种会替换另一种。")
+        .row(SettingsRow::new(&ui, "快捷键", recorder))
+        .row(SettingsRow::new(&ui, "仅修饰键", modifier_recorder))
         .content(clear)
         .footer(message)
 }

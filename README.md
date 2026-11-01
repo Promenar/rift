@@ -1,6 +1,8 @@
 <div align="center">
 
 # rift
+
+[简体中文界面说明](README.zh-CN.md)
   <p>rift is a tiling window manager for macOS that focuses on performance and usability. </p>
   <img src="assets/demo.gif" alt="Rift demo" />
 
