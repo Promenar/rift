@@ -31,14 +31,30 @@
 
 ## 安装状态与回退
 
-当前运行版本仍是 2026-11-02 安装的 v0.7.2 中文版（`~/Library/Application Support/Rift/Versions/0.7.2-zh-cn-20261102-000648`）。v0.8.3 尚未安装，只在 `target/aarch64-apple-darwin/release/` 生成了候选二进制。
+2026-11-18 已在本机安装 v0.8.3 中文版：
 
-升级安装时注意：
+- 版本目录：`~/Library/Application Support/Rift/Versions/0.8.3-zh-cn-20261118-022151`
+- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+06c06cc21cb7`
+- 二进制 SHA-256：`8831a35675acc9f393e5df361ec589ba49031c0c7f54e2edf5c9db05cf1fb6d7`
+- 辅助功能授权绑定的就是该文件，不要重新 `codesign` 或替换它
+- 服务用 `rift service restart` 管理；`rift-cli service` 已提示迁到 `rift`
+- 用户配置、快捷键、应用规则与 LaunchAgent 未改；持久化布局快照在升级前备份
 
-- 新二进制必须重新在“系统设置 > 隐私与安全性 > 辅助功能”中手动点 `+` 添加并授权；重新构建或签名不会继承旧授权。只加 `rift`，不需要 `rift-cli`。
-- 授权后不要再重新 `codesign` 或替换该文件，否则 cdhash 变化会让授权失效。
-- 旧条目只能在列表中手动选中后点 `-` 移除；不要执行 `tccutil reset Accessibility`，它会同时撤销当前可用授权。
-- 上游 v0.8.3 发布物改为 `Rift.app` 包（bundle id `git.acsandmann.rift`）并保留旧的裸二进制 tarball；本仓库从源码构建，仍产出裸二进制，安装流程不变。
+安装过程中的已知现象：
+
+- 替换二进制后的首次启动被 macOS 以 `SIGKILL (Code Signature Invalid) / Launch Constraint Violation` 终止一次，launchd 自动重启后稳定；之后 `rift service restart` 未复现，也未新增崩溃报告。
+- 屏幕休眠/锁定时重启会让布局恢复降级（只保留当前工作区）。唤醒后再次 `rift service restart` 可从快照正常恢复 4 个工作区。
+- 上游 global 模式下 Rift 会为没有工作区的显示器自动播种一个工作区，因此本机现在除 first/second/Workspace 3/Workspace 4 外多出一个 Workspace 5（位于第二台显示器）。需要旧的 per-display 行为时，在 `~/.config/rift/config.toml` 的 `[virtual_workspaces]` 中设置 `mode = "per_display"`。
+
+回退到 v0.7.2 中文版：
+
+```sh
+BK="$HOME/Library/Application Support/Rift/Backups/20261118-022151-v083-authorized"
+python3 "$BK/rollback.py" --check
+python3 "$BK/rollback.py"
+```
+
+备份目录同时保存升级前的 LaunchAgent、`config.toml`、`layout.ron`、旧入口链接与本机校验值。`rollback.py` 会校验旧二进制 SHA-256 后再切回，并按目标版本选择 `rift service` 或 `rift-cli service`。
 
 回退到安装前的 0.7.0 中文版：
 
@@ -73,6 +89,7 @@ cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli 
 | `settings_native --ignored --about` | 更新状态与请求清理通过 |
 | 设置页截图（`--render --page 0..10`） | 11 个页面均为中文渲染 |
 | arm64 release 构建 | `rift` 与 `rift-cli` 生成成功 |
+| 安装运行（2026-11-18） | `rift --version` 为 `0.8.3+06c06cc21cb7`；IPC 查询正常；`windows_managed` 3–5；设置窗口实际显示中文；窗口按布局平铺 |
 
 已知问题：`settings_native --ignored --verify` 在 `search replaces the sidebar` 断言失败，**纯上游 v0.8.3 在同一台机器上同样失败**，与本仓库汉化无关；该断言依赖搜索态下侧栏视图被替换的时序。快捷键与关于页另有独立入口，已单独通过。
 
