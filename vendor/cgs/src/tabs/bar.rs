@@ -1,4 +1,4 @@
-// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.4.0。
+// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.5.2。
 //! A nonactivating native glass strip. All objects are confined to the AppKit thread.
 //! Geometry was inspired by ZimengXiong/tabbed's Theme, TabItemView and TabStripView
 //! at https://github.com/ZimengXiong/tabbed/tree/9481b628767921bd1af1b90c4d7448282c9757b6/Sources/UI.

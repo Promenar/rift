@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "cgs"
-version = "0.4.0"
+version = "0.5.2"
 build = "build.rs"
 autolib = false
 autobins = false
@@ -37,6 +37,10 @@ path = "src/lib.rs"
 [[example]]
 name = "capture_all"
 path = "examples/capture_all.rs"
+
+[[example]]
+name = "interactive_switcher"
+path = "examples/interactive_switcher.rs"
 
 [[example]]
 name = "metal_preview"
@@ -202,6 +206,7 @@ version = "0.3.2"
 features = [
     "CGColor",
     "CGContext",
+    "CGBitmapContext",
     "CGColorSpace",
     "CGError",
     "CGGeometry",
@@ -274,6 +279,7 @@ features = ["objc2-io-surface"]
 [dependencies.objc2-quartz-core]
 version = "0.3.2"
 features = [
+    "CADisplayLink",
     "CAMetalLayer",
     "CAMetalDisplayLink",
     "CABase",
@@ -314,10 +320,14 @@ default-features = false
 version = "0.1.40"
 default-features = false
 
+[dev-dependencies.multitouch]
+version = "0.3.2"
+
 [dev-dependencies.objc2-app-kit]
 version = "0.3.2"
 features = [
     "NSDraggingItem",
+    "NSBitmapImageRep",
     "libc",
 ]
 default-features = false

@@ -1,4 +1,4 @@
-// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.4.0。
+// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.5.2。
 use objc2::rc::Retained;
 use objc2_app_kit::*;
 use objc2_foundation::NSString;

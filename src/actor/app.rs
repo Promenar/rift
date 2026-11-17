@@ -25,6 +25,7 @@ use crate::actor::reactor::transaction_manager::TransactionId;
 use crate::actor::reactor::{self, Event, Requested};
 use crate::actor::wm_controller::{self, WmEvent};
 use crate::common::collections::{HashMap, HashSet};
+use crate::model::hidden_window_placement::ScrollingDisplayBounds;
 use crate::model::tx_store::WindowTxStore;
 pub use crate::sys::app::{AppInfo, WindowInfo, pid_t};
 use crate::sys::app::{NSRunningApplicationExt, NativeWindowIdentity};
@@ -307,7 +308,10 @@ pub struct AppThreadHandle {
 /// presenter retain their revision even after the reactor accepts a new one.
 #[derive(Clone, Debug, Default)]
 #[doc(hidden)]
-pub struct FrameAuthority(Option<(crate::actor::spaces::TopologyGuard, u64)>);
+pub struct FrameAuthority(
+    Option<(crate::actor::spaces::TopologyGuard, u64)>,
+    Option<ScrollingDisplayBounds>,
+);
 
 impl FrameAuthority {
     fn is_older_than(&self, other: &Self) -> bool {
@@ -487,8 +491,16 @@ impl AppThreadHandle {
         guard: &crate::actor::spaces::TopologyGuard,
         revision: u64,
     ) {
-        self.frame_authority = FrameAuthority(Some((guard.clone(), revision)));
+        self.frame_authority = FrameAuthority(Some((guard.clone(), revision)), None);
     }
+
+    pub(crate) fn with_scrolling_bounds(&self, bounds: Option<ScrollingDisplayBounds>) -> Self {
+        let mut handle = self.clone();
+        handle.frame_authority.1 = bounds;
+        handle
+    }
+
+    pub(crate) fn constrains_scrolling(&self) -> bool { self.frame_authority.1.is_some() }
 
     pub fn send(&self, req: Request) -> anyhow::Result<()> {
         let mut req = req;
@@ -661,7 +673,7 @@ impl Request {
     #[inline]
     fn disables_enhanced_ui(&self) -> bool {
         match self {
-            Self::SetWindowFrames(_, _, _, enabled, _) => *enabled,
+            Self::SetWindowFrames(_, _, FrameMode::Full, enabled, _) => *enabled,
             _ => false,
         }
     }
@@ -702,6 +714,59 @@ pub fn spawn_app_thread(
     }
 }
 
+// AX activation can precede Carbon; Carbon activation can precede AX unhide.
+// Keep the quiet context until the corresponding authoritative edge is ready.
+#[derive(Default)]
+enum PendingActivation {
+    #[default]
+    None,
+    Ax(Instant, Quiet),
+    Hidden(Quiet, Option<WindowId>),
+}
+
+impl PendingActivation {
+    fn ax_activated(&mut self, quiet: Quiet) {
+        if !matches!(self, Self::Hidden(..)) {
+            *self = Self::Ax(Instant::now(), quiet);
+        }
+    }
+
+    fn ax_deactivated(&mut self) {
+        // AX frontmost can lag the authoritative global activation edge.
+        if matches!(self, Self::Ax(..)) {
+            *self = Self::None;
+        }
+    }
+
+    fn globally_activated(
+        &mut self,
+        hidden: bool,
+        initiated: Option<(Quiet, Option<WindowId>)>,
+    ) -> Option<(Quiet, Option<WindowId>)> {
+        let pending = std::mem::take(self);
+        let context = initiated.unwrap_or_else(|| match pending {
+            Self::Ax(at, quiet) if at.elapsed() < Duration::from_millis(1000) => (quiet, None),
+            _ => (Quiet::No, None),
+        });
+        if hidden {
+            *self = Self::Hidden(context.0, context.1);
+            None
+        } else {
+            Some(context)
+        }
+    }
+
+    fn shown(&mut self) -> Option<(Quiet, Option<WindowId>)> {
+        if let Self::Hidden(quiet, window) = self {
+            let context = (*quiet, *window);
+            *self = Self::None;
+            Some(context)
+        } else {
+            None
+        }
+    }
+}
+
 struct State {
     pid: pid_t,
     bundle_id: Option<String>,
@@ -713,7 +778,7 @@ struct State {
     elem_to_wid: HashMap<AXUIElement, WindowId>,
     main_window: Option<WindowId>,
     last_activated: Option<(Instant, Quiet, Option<WindowId>, oneshot::Sender<()>)>,
-    pending_activation_quiet: Option<(Instant, Quiet)>,
+    pending_activation: PendingActivation,
     is_hidden: bool,
     is_frontmost: bool,
     enhanced_ui: EnhancedUi,
@@ -729,6 +794,7 @@ struct AppWindowState {
     window_server_id: Option<WindowServerId>,
     title: String,
     is_animating: bool,
+    animation_eui_held: bool,
     animation_authority: FrameAuthority,
     last_animation_frame: Option<(CGRect, FrameAuthority)>,
     // Latest observed or intended geometry; only a hint for choosing AX setters.
@@ -738,6 +804,7 @@ struct AppWindowState {
 
 /// The AX geometry operations used to place a window.
 trait FrameTarget {
+    fn scrolling_bounds(&self) -> Option<ScrollingDisplayBounds> { None }
     fn frame(&self) -> Result<CGRect, AxError>;
     fn set_position(&self, origin: CGPoint) -> Result<(), AxError>;
     fn set_size(&self, size: CGSize) -> Result<(), AxError>;
@@ -762,6 +829,8 @@ struct AuthorizedFrameTarget<'a, T> {
 }
 
 impl<T: FrameTarget> FrameTarget for AuthorizedFrameTarget<'_, T> {
+    fn scrolling_bounds(&self) -> Option<ScrollingDisplayBounds> { self.authority.1 }
+
     fn frame(&self) -> Result<CGRect, AxError> { self.target.frame() }
 
     fn set_position(&self, origin: CGPoint) -> Result<(), AxError> {
@@ -813,8 +882,8 @@ impl FrameWrites {
 fn write_frame(
     elem: &impl FrameTarget,
     current: CGRect,
-    target: CGRect,
-    writes: FrameWrites,
+    mut target: CGRect,
+    mut writes: FrameWrites,
 ) -> Result<FrameWrites, AxError> {
     // Moving before growing avoids clamping at a screen edge; shrinking first
     // avoids it in the opposite direction. A frame that grows on one axis and
@@ -830,6 +899,16 @@ fn write_frame(
         result.is_err()
     };
     let mut failed = FrameWrites::default();
+    if writes.size
+        && let Some(origin) = elem.scrolling_bounds().and_then(|bounds| {
+            bounds.resize_origin(current).or_else(|| bounds.resize_origin(target))
+        })
+    {
+        // Keep an origin independent of the unknown accepted width until readback.
+        failed.position = failed_with(elem.set_position(origin));
+        target.origin = origin;
+        writes.position = false;
+    }
     if writes.position && writes.size && grows && shrinks {
         let shrunk = CGSize::new(
             target.size.width.min(current.size.width),
@@ -857,8 +936,8 @@ fn write_frame(
 /// `hint` is the last observed or intended frame. It only selects setters: AX
 /// notifications are asynchronous, so it may be stale, and the returned frame is
 /// always read back, unless the app did not answer a setter: the readback would
-/// queue behind it and wait out the same timeout. `before_write` runs before any
-/// setter.
+/// queue behind it and wait out the same timeout. `before_write` runs only
+/// before writes that include a resize.
 fn reconcile_frame(
     elem: &impl FrameTarget,
     hint: CGRect,
@@ -866,13 +945,25 @@ fn reconcile_frame(
     mode: FrameMode,
     mut before_write: impl FnMut(),
 ) -> Result<CGRect, AxError> {
+    let bounds = elem.scrolling_bounds();
+    let constrain = |frame| bounds.map_or(frame, |bounds| bounds.apply(frame));
+    let mut target = constrain(target);
+    if mode == FrameMode::Position {
+        target.origin = constrain(CGRect::new(target.origin, hint.size)).origin;
+    }
     let planned = FrameWrites::between(hint, target, mode);
     let mut failed = FrameWrites::default();
     if planned.any() {
-        before_write();
+        if planned.size {
+            before_write();
+        }
         failed = write_frame(elem, hint, target, planned)?;
     }
     let mut frame = elem.frame()?;
+    let target = CGRect::new(
+        constrain(CGRect::new(target.origin, frame.size)).origin,
+        target.size,
+    );
     // A dimension the hint skipped is wrong, so the hint was stale. Correct it as
     // a full write from the observed frame would, rewriting position with any
     // size correction because some apps move the origin while resizing. A size
@@ -883,10 +974,19 @@ fn reconcile_frame(
             position: !failed.position,
             size: missed.size,
         };
-        before_write();
+        if fix.size {
+            before_write();
+        }
         let fix_failed = write_frame(elem, frame, target, fix)?;
         failed.position |= fix_failed.position;
         failed.size |= fix_failed.size;
+        frame = elem.frame()?;
+    }
+    // The accepted size may differ (Terminal character cells, app minima).
+    // Reuse the readback already required by reconciliation, never requested size.
+    let constrained = constrain(CGRect::new(target.origin, frame.size));
+    if !failed.position && !constrained.origin.same_as(frame.origin) && bounds.is_some() {
+        elem.set_position(constrained.origin)?;
         frame = elem.frame()?;
     }
     if failed.any() {
@@ -905,10 +1005,14 @@ fn reconcile_frame(
 fn write_interactive_frame(
     elem: &impl FrameTarget,
     hint: &mut CGRect,
-    frame: CGRect,
-    set_size: bool,
+    mut frame: CGRect,
+    mut set_size: bool,
     source: FrameSource,
 ) {
+    if let Some(bounds) = elem.scrolling_bounds() {
+        frame = bounds.apply(CGRect::new(frame.origin, hint.size));
+        set_size = false;
+    }
     if set_size || (source != FrameSource::Drag && !hint.size.same_as(frame.size)) {
         let both = FrameWrites { position: true, size: true };
         let _ = write_frame(elem, *hint, frame, both);
@@ -919,7 +1023,7 @@ fn write_interactive_frame(
     }
 }
 
-/// Batch-scoped Enhanced UI suppression, acquired before the batch's first write.
+/// Batch-scoped Enhanced UI suppression, acquired before the batch's first resize.
 #[derive(Debug, PartialEq, Eq)]
 enum BatchEui {
     NotRequested,
@@ -1167,7 +1271,6 @@ impl State {
 
         if !should_terminate && !pending_frames.is_empty() {
             let mut state = this.borrow_mut();
-            state.hold_batch_eui(&mut eui);
             for (wid, frame) in pending_frames {
                 if let Err(err) = state.apply_interactive_frame(wid, frame) {
                     warn!(?wid, ?err, "Failed to apply animation frame");
@@ -1209,6 +1312,20 @@ impl State {
             ..
         } = pending;
         let _guard = span.enter();
+        // Acquire lazily: animation startup and position-only samples need no EUI.
+        let needs_resize = {
+            let window = self.window_mut(wid)?;
+            authority.1.is_none()
+                && (set_size
+                    || (source != FrameSource::Drag
+                        && !window.last_known_frame.size.same_as(frame.size)))
+                && !window.animation_eui_held
+        };
+        if needs_resize {
+            let app = self.app.clone();
+            self.enhanced_ui.acquire(&app);
+            self.window_mut(wid)?.animation_eui_held = true;
+        }
         let window = self.window_mut(wid)?;
         window.last_seen_txid = txid;
         window.frame_source = source;
@@ -1474,8 +1591,6 @@ impl State {
                     (window.elem.clone(), started_animation)
                 };
                 if started_animation {
-                    let app = self.app.clone();
-                    self.enhanced_ui.acquire(&app);
                     self.stop_notifications_for_animation(&elem);
                 }
             }
@@ -1551,9 +1666,11 @@ impl State {
                 // A newer target may already be in the shared store. Report the
                 // transaction actually written by this actor, including on normal end.
                 let txid = Self::some_txid(last_seen_txid);
-                if ended_animation {
+                if std::mem::take(&mut self.window_mut(wid)?.animation_eui_held) {
                     let app = self.app.clone();
                     self.enhanced_ui.release(&app);
+                }
+                if ended_animation {
                     self.restart_notifications_after_animation(&elem);
                 }
                 let mut frame =
@@ -1577,7 +1694,12 @@ impl State {
                             frame,
                             target,
                             FrameMode::Full,
-                            || {},
+                            || {
+                                if *eui == BatchEui::NotRequested {
+                                    *eui = BatchEui::Deferred;
+                                }
+                                self.hold_batch_eui(eui);
+                            },
                         )
                     });
                     frame = match self.handle_ax_result(wid, result)? {
@@ -1873,6 +1995,14 @@ impl State {
             }
             Err(err) => return Err(err.into()),
         };
+        check_cancel()?;
+        // Select the target main window before activating the process. Otherwise
+        // apps with windows on several workspaces can restore their previous
+        // main window during activation, even though make-key targets `first`.
+        // AXMain is not writable in every app; retain the make-key/raise fallback.
+        if let Err(err) = this.window(first)?.elem.set_bool_attribute("AXMain", true) {
+            debug!(?first, ?err, "Failed to select main window before activation");
+        }
         let make_key_result =
             window_server_id.map(|wsid| window_server::make_key_window(this.pid, wsid));
         if let Some(Err(err)) = &make_key_result {
@@ -1892,6 +2022,7 @@ impl State {
             // activation wait. Cancellation can stop follow-up batch raises, but it
             // must not leave process activation detached from its target window.
             let window = this.window(first)?;
+            check_cancel()?;
             trace("raise before activation wait", &window.elem, || {
                 window.elem.raise()
             })?;
@@ -1913,12 +2044,14 @@ impl State {
         }
 
         for (i, &wid) in wids.iter().enumerate() {
+            check_cancel()?;
             debug_assert_eq!(wid.pid, this.pid);
-            if waits_for_activation && i == 0 {
-                trace!(?wid, "Skipping duplicate raise after activation wait");
-            } else {
-                let window = this.window(wid)?;
-                trace("raise", &window.elem, || window.elem.raise())?;
+            let window = this.window(wid)?;
+            // Activation may restore a different main window after the initial
+            // raise. Reassert the target after the wait, before reporting focus.
+            trace("raise", &window.elem, || window.elem.raise())?;
+            if let Err(err) = window.elem.set_bool_attribute("AXMain", true) {
+                debug!(?wid, ?err, "Failed to select main window after raise");
             }
 
             // TODO: Check the frontmost (layer 0) window of the window server and retry if necessary.
@@ -2035,33 +2168,32 @@ impl State {
         );
 
         if !is_frontmost {
-            self.pending_activation_quiet = None;
+            self.pending_activation.ax_deactivated();
             if old_frontmost {
                 self.send_event(Event::ApplicationDeactivated(self.pid));
             }
-        } else if !old_frontmost {
+        } else if !old_frontmost && !self.is_hidden {
             let (quiet, quiet_window_change) = self.take_activation_context();
             self.on_main_window_changed(quiet_window_change, true);
-            self.pending_activation_quiet = Some((Instant::now(), quiet));
+            self.pending_activation.ax_activated(quiet);
         }
         Ok(())
     }
 
     fn on_global_activation(&mut self) -> Result<(), AxError> {
-        let (quiet, quiet_window_change) = if self.last_activated.is_some() {
-            self.take_activation_context()
-        } else if let Some((ts, quiet)) = self.pending_activation_quiet.take()
-            && ts.elapsed() < Duration::from_millis(1000)
-        {
-            (quiet, None)
-        } else {
-            (Quiet::No, None)
-        };
-
-        // Carbon is the authoritative inter-application activation edge. AX
-        // frontmost polling/notifications can lag it, so do not reject this
-        // request based on a transient AX value.
+        let initiated = self.last_activated.is_some().then(|| self.take_activation_context());
+        // Carbon owns the activation edge; AX unhide must finish before its
+        // resolved activation is delivered to the reactor.
         self.is_frontmost = true;
+        if let Some((quiet, window)) =
+            self.pending_activation.globally_activated(self.is_hidden, initiated)
+        {
+            self.finish_activation(quiet, window);
+        }
+        Ok(())
+    }
+
+    fn finish_activation(&mut self, quiet: Quiet, quiet_window_change: Option<WindowId>) {
         if self.on_main_window_changed(quiet_window_change, true).is_none()
             && self.main_window.take().is_some()
         {
@@ -2071,7 +2203,6 @@ impl State {
             self.send_event(Event::ApplicationMainWindowChanged(self.pid, None, Quiet::No));
         }
         self.send_event(Event::ApplicationActivated(self.pid, quiet));
-        Ok(())
     }
 
     async fn wait_for_activation(
@@ -2116,6 +2247,7 @@ impl State {
         }
 
         self.is_hidden = true;
+        self.pending_activation.ax_deactivated();
         let mut to_minimize = Vec::new();
         for (wid, window) in self.windows.iter_mut() {
             if window.hidden_by_app {
@@ -2158,6 +2290,9 @@ impl State {
 
         for wid in to_restore {
             self.send_event(Event::WindowDeminiaturized(wid));
+        }
+        if let Some((quiet, window)) = self.pending_activation.shown() {
+            self.finish_activation(quiet, window);
         }
     }
 
@@ -2241,6 +2376,7 @@ impl State {
             window_server_id: Some(window_server_id),
             title: info.title.clone(),
             is_animating: false,
+            animation_eui_held: false,
             animation_authority: Default::default(),
             last_animation_frame: None,
             last_known_frame: info.frame,
@@ -2602,7 +2738,7 @@ impl State {
     fn remove_window(&mut self, wid: WindowId) -> Option<AppWindowState> {
         let window = self.windows.remove(&wid)?;
         self.elem_to_wid.remove(&window.elem);
-        if window.is_animating {
+        if window.animation_eui_held {
             let app = self.app.clone();
             self.enhanced_ui.release(&app);
         }
@@ -2702,7 +2838,7 @@ pub(crate) async fn run_app(
         elem_to_wid: HashMap::default(),
         main_window: None,
         last_activated: None,
-        pending_activation_quiet: None,
+        pending_activation: PendingActivation::None,
         is_hidden: false,
         is_frontmost: false,
         enhanced_ui: EnhancedUi::default(),
@@ -2748,6 +2884,44 @@ fn trace<T>(
 }
 
 #[cfg(test)]
+mod activation_tests {
+    use super::*;
+
+    #[test]
+    fn hidden_activation_waits_for_show_and_preserves_user_or_quiet_intent() {
+        for quiet in [Quiet::No, Quiet::Yes] {
+            let mut pending = PendingActivation::default();
+            let window = Some(WindowId::new(7, 1));
+            assert_eq!(pending.globally_activated(true, Some((quiet, window))), None);
+            // Lagging AX notifications cannot replace or cancel a Carbon edge.
+            pending.ax_activated(Quiet::No);
+            pending.ax_deactivated();
+            assert_eq!(pending.shown(), Some((quiet, window)));
+            assert_eq!(pending.shown(), None);
+        }
+    }
+
+    #[test]
+    fn showing_without_global_activation_does_not_activate() {
+        let mut pending = PendingActivation::default();
+        pending.ax_activated(Quiet::Yes);
+        assert_eq!(pending.shown(), None);
+        assert_eq!(pending.globally_activated(false, None), Some((Quiet::Yes, None)));
+        pending.ax_activated(Quiet::Yes);
+        pending.ax_deactivated();
+        assert_eq!(pending.globally_activated(false, None), Some((Quiet::No, None)));
+    }
+
+    #[test]
+    fn new_global_activation_replaces_old_deferred_quiet_context() {
+        let mut pending = PendingActivation::default();
+        assert_eq!(pending.globally_activated(true, Some((Quiet::Yes, None))), None);
+        assert_eq!(pending.globally_activated(true, None), None);
+        assert_eq!(pending.shown(), Some((Quiet::No, None)));
+    }
+}
+
+#[cfg(test)]
 mod frame_tests {
     use std::cell::{Cell, RefCell};
 
@@ -2758,6 +2932,8 @@ mod frame_tests {
     struct FakeWindow {
         frame: Cell<CGRect>,
         min_size: CGSize,
+        size_step: f64,
+        placements: RefCell<Vec<CGRect>>,
         // Like WindowServer, keeps the bottom edge on this display by moving
         // the window up, but never above the display's top.
         display: Option<CGRect>,
@@ -2793,7 +2969,12 @@ mod frame_tests {
                 return Err(AxError::Ax(AXError::CannotComplete));
             }
             let size = CGSize::new(
-                size.width.max(self.min_size.width),
+                if self.size_step > 0.0 {
+                    (size.width / self.size_step).floor() * self.size_step
+                } else {
+                    size.width
+                }
+                .max(self.min_size.width),
                 size.height.max(self.min_size.height),
             );
             self.place(CGRect::new(self.frame.get().origin, size));
@@ -2809,6 +2990,7 @@ mod frame_tests {
                     frame.origin.y = (bottom - frame.size.height).max(display.origin.y);
                 }
             }
+            self.placements.borrow_mut().push(frame);
             self.frame.set(frame);
         }
     }
@@ -2819,6 +3001,46 @@ mod frame_tests {
 
     fn reconcile(window: &FakeWindow, target: CGRect) -> Result<CGRect, AxError> {
         reconcile_frame(window, window.frame.get(), target, FrameMode::Full, || {})
+    }
+
+    #[test]
+    fn stepped_sizes_keep_display_intersection_without_animation_reads() {
+        let screen = rect(623., 1726., 1728., 1000.);
+        for x in [screen.origin.x - 996., screen.max().x - 1.] {
+            let window = FakeWindow {
+                frame: Cell::new(rect(700., 1726., 1000., 800.)),
+                size_step: 10.,
+                ..Default::default()
+            };
+            let authority = FrameAuthority(None, ScrollingDisplayBounds::for_screen(screen, &[]));
+            let target = AuthorizedFrameTarget {
+                target: &window,
+                authority: &authority,
+            };
+            let requested = rect(x, 1726., 997., 800.);
+            let mut accepted =
+                reconcile_frame(&target, window.frame.get(), requested, FrameMode::Full, || {})
+                    .unwrap();
+            assert_eq!(accepted, window.frame.get());
+            assert_eq!(accepted.size.width, 990.);
+            window.calls.borrow_mut().clear();
+            for x in [-10000., 623.5, 10000.] {
+                write_interactive_frame(
+                    &target,
+                    &mut accepted,
+                    rect(x, 1726., 1103., 800.),
+                    true,
+                    FrameSource::Viewport,
+                );
+            }
+            assert!(window.calls.borrow().iter().all(|call| *call == "position"));
+            for frame in window.placements.borrow().iter() {
+                assert!(
+                    frame.max().x > screen.origin.x && frame.origin.x < screen.max().x,
+                    "lost display: {frame:?}"
+                );
+            }
+        }
     }
 
     #[test]

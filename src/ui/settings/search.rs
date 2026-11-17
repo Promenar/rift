@@ -184,7 +184,7 @@ fn catalog() -> &'static [Entry] {
         append::<Settings>(&mut out, "general", General, None, "通用 › 窗口行为");
         append::<Settings>(&mut out, "advanced", Advanced, None, "高级");
         append::<Settings>(&mut out, "pointer", Mouse, None, "鼠标与触控板 › 焦点");
-        append::<VirtualWorkspaceSettings>(&mut out, "", Workspaces, None, "Workspaces");
+        append::<VirtualWorkspaceSettings>(&mut out, "", Workspaces, None, "显示器覆盖设置");
         append::<GestureSettings>(
             &mut out,
             "main",

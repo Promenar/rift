@@ -1,19 +1,26 @@
 //! Persistent window geometry; only the camera projects it into the overview.
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use cgs::compositor::{CgsWindow, LayerTransaction, WindowSurface, release_layer_tree};
-use objc2::AnyThread;
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
+use objc2::runtime::{AnyObject, ProtocolObject};
+use objc2::{AnyThread, DeclaredClass, define_class};
 use objc2_app_kit::{
     NSColor, NSCursor, NSFont, NSImage, NSRunningApplication, NSScreen, NSWorkspace,
 };
 use objc2_core_foundation::{
     CFRetained, CFString, CFType, CGAffineTransform, CGPoint, CGRect, CGSize,
 };
-use objc2_core_graphics::{CGColor, CGDisplayBounds, CGImage, CGPath};
-use objc2_foundation::MainThreadMarker;
-use objc2_quartz_core::{CALayer, CATextLayer};
+use objc2_core_graphics::{
+    CGColor, CGDisplayBounds, CGImage, CGPath, CGPreflightScreenCaptureAccess,
+};
+use objc2_foundation::{MainThreadMarker, NSNumber, NSObject, NSObjectProtocol, NSString, NSValue};
+use objc2_quartz_core::{
+    CAAnimation, CAAnimationDelegate, CABasicAnimation, CALayer, CAMediaTiming, CATextLayer,
+    CATransform3D, NSValueCATransform3DAdditions,
+};
 
 use crate::actor::app::WindowId;
 use crate::actor::mission_control::Input;
@@ -26,6 +33,11 @@ const MIN_ZOOM: f64 = 0.08;
 const MAX_ZOOM: f64 = 2.0;
 const OVERVIEW_ZOOM: f64 = 0.34;
 const EXIT_MOTION: f64 = 0.28;
+const HANDOFF_RECOVERY: f64 = 1.5;
+// Just a few refresh intervals: soften texture/chrome differences without a
+// prolonged double image. This starts only after native handoff verification.
+const REVEAL_MOTION: f64 = 0.04;
+const CAPTURE_PIXELS: usize = 96 * 1024 * 1024 / 4;
 
 fn rect(x: f64, y: f64, w: f64, h: f64) -> CGRect {
     CGRect::new(CGPoint::new(x, y), CGSize::new(w, h))
@@ -57,6 +69,17 @@ impl Camera {
             (p.x - self.position.x) * self.zoom,
             (p.y - self.position.y) * self.zoom,
         )
+    }
+
+    fn transform(self) -> CATransform3D {
+        CATransform3D::new_affine_transform(CGAffineTransform {
+            a: self.zoom,
+            b: 0.,
+            c: 0.,
+            d: self.zoom,
+            tx: -self.position.x * self.zoom,
+            ty: -self.position.y * self.zoom,
+        })
     }
 
     fn unproject(self, p: CGPoint) -> CGPoint {
@@ -95,9 +118,26 @@ impl Camera {
 
 #[derive(Clone, Copy)]
 enum MotionCurve {
-    Settle,
     Enter,
     Smooth,
+    Retarget(f64),
+}
+
+define_class! {
+    #[unsafe(super(NSObject))]
+    #[ivars = (Arc<AtomicBool>, Option<crate::actor::mission_control::Sender>)]
+    struct CameraCompletion;
+    unsafe impl NSObjectProtocol for CameraCompletion {}
+    unsafe impl CAAnimationDelegate for CameraCompletion {
+        #[unsafe(method(animationDidStop:finished:))]
+        fn stopped(&self, _animation: &CAAnimation, _finished: bool) {
+            if !self.ivars().0.swap(true, Ordering::AcqRel) {
+                if let Some(wake) = &self.ivars().1 {
+                    wake.send(crate::actor::mission_control::Event::PumpPreviews);
+                }
+            }
+        }
+    }
 }
 
 struct Motion {
@@ -106,16 +146,18 @@ struct Motion {
     start: Instant,
     duration: f64,
     curve: MotionCurve,
+    submitted: bool,
+    completed: Arc<AtomicBool>,
 }
 impl Motion {
     fn sample(&self, now: Instant) -> (Camera, bool) {
         let t = (now.duration_since(self.start).as_secs_f64() / self.duration).min(1.);
         // Entry settles quickly; focus accelerates into the window without a first-frame jump.
         let t = match self.curve {
-            MotionCurve::Settle => (1. - (-6. * t).exp()) / (1. - (-6.0_f64).exp()),
             // A direct initial response with a zero-velocity landing, without bounce.
             MotionCurve::Enter => 1. - (1. - t).powi(3),
             MotionCurve::Smooth => t * t * (3. - 2. * t),
+            MotionCurve::Retarget(slope) => t * (slope + t * (3. - 2. * slope + t * (slope - 2.))),
         };
         let mix = |a: f64, b: f64| a + (b - a) * t;
         let zoom = mix(self.from.zoom, self.to.zoom);
@@ -161,6 +203,44 @@ fn layer(frame: CGRect, scale: f64) -> Retained<CALayer> {
     l.setContentsScale(scale);
     l
 }
+fn fade(layer: &CALayer, to: f32) {
+    let from = unsafe { layer.presentationLayer() }.map_or(layer.opacity(), |p| p.opacity());
+    let animation = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str("opacity")));
+    unsafe {
+        animation.setFromValue(Some(&NSNumber::new_f32(from)));
+        animation.setToValue(Some(&NSNumber::new_f32(to)));
+    }
+    animation.setDuration(REVEAL_MOTION);
+    layer.setOpacity(to);
+    layer.addAnimation_forKey(&animation, Some(&NSString::from_str("reveal")));
+}
+
+fn decoration_fade(layer: &CALayer, shadow: bool, to: f32, duration: f64) {
+    let displayed = unsafe { layer.presentationLayer() };
+    let from = if shadow {
+        displayed.as_deref().unwrap_or(layer).shadowOpacity()
+    } else {
+        displayed.as_deref().unwrap_or(layer).opacity()
+    };
+    let key = NSString::from_str(if shadow { "shadowOpacity" } else { "opacity" });
+    let animation = CABasicAnimation::animationWithKeyPath(Some(&key));
+    unsafe {
+        animation.setFromValue(Some(&NSNumber::new_f32(from)));
+        animation.setToValue(Some(&NSNumber::new_f32(to)));
+    }
+    animation.setDuration(duration);
+    if shadow {
+        layer.setShadowOpacity(to);
+    } else {
+        layer.setOpacity(to);
+    }
+    if duration > 0. && from != to {
+        layer.addAnimation_forKey(&animation, Some(&key));
+    } else {
+        layer.removeAnimationForKey(&key);
+    }
+}
+
 fn set_text(l: &CATextLayer, text: &str) {
     let text = CFString::from_str(text);
     unsafe {
@@ -297,6 +377,7 @@ struct SceneWindow {
     // Decorations share the camera but stay sharp and understated at small scales.
     shadow: Retained<CALayer>,
     preview: cgs::compositor::preview::PreviewLayer,
+    preview_frame: Option<(u32, i32, Instant)>,
     icon_image: Option<Retained<CGImage>>,
 }
 impl SceneWindow {
@@ -309,16 +390,17 @@ impl SceneWindow {
         icon: Option<Retained<CGImage>>,
     ) -> Self {
         let shadow = layer(CGRect::ZERO, scale);
-        shadow.setCornerRadius(8.);
+        shadow.setCornerRadius(10.);
         shadow.setBackgroundColor(Some(&color(0.10, 0.105, 0.115, 1.)));
         shadow.setShadowColor(Some(&color(0., 0., 0., 1.)));
         shadow.setShadowOpacity(0.28);
-        shadow.setShadowRadius(12.);
-        shadow.setShadowOffset(CGSize::new(0., 4.));
+        shadow.setShadowRadius(18.);
+        shadow.setShadowOffset(CGSize::new(0., 10.));
         shadow.setZPosition(0.5);
         root.addSublayer(&shadow);
         let preview = cgs::compositor::preview::PreviewLayer::new();
         preview.layer().setMasksToBounds(true);
+        preview.layer().setCornerRadius(10.);
         shadow.addSublayer(preview.layer());
         Self {
             data,
@@ -327,24 +409,40 @@ impl SceneWindow {
             world,
             shadow,
             preview,
+            preview_frame: None,
             icon_image: icon,
         }
+    }
+
+    fn set_frame(&mut self, frame: &cgs::compositor::preview::PreviewSurfaceFrame) -> bool {
+        let identity = (frame.window_id(), frame.process_id());
+        if self.preview_frame.is_some_and(|(id, pid, received)| {
+            (id, pid) == identity && received > frame.received_at()
+        }) {
+            return false;
+        }
+        let changed = self.preview.set_surface_frame(frame);
+        if changed {
+            self.preview_frame = Some((identity.0, identity.1, frame.received_at()));
+        }
+        changed
     }
 
     fn detach(&self) { self.shadow.removeFromSuperlayer(); }
 
     fn apply_geometry(&self) {
+        if !self.shadow.transform().is_identity() {
+            self.shadow.setTransform(CATransform3D::new_scale(1., 1., 1.));
+        }
         let bounds = CGRect::new(CGPoint::ZERO, self.world.size);
         if self.preview.layer().bounds() != bounds {
             let path = unsafe { CGPath::with_rounded_rect(bounds, 10., 10., std::ptr::null()) };
             self.shadow.setShadowPath(Some(&path));
             self.preview.layer().setFrame(bounds);
         }
-        self.shadow.setFrame(self.world);
-        self.shadow.setCornerRadius(10.);
-        self.shadow.setShadowRadius(18.);
-        self.shadow.setShadowOffset(CGSize::new(0., 10.));
-        self.preview.layer().setCornerRadius(10.);
+        if self.shadow.frame() != self.world {
+            self.shadow.setFrame(self.world);
+        }
     }
 }
 
@@ -454,9 +552,6 @@ struct DisplayOverview {
     home: Camera,
     motion: Option<Motion>,
     background: Retained<CALayer>,
-    desktop_snapshot: Option<cgs::compositor::preview::DesktopSnapshot>,
-    background_ready: bool,
-    wallpaper_key: Option<String>,
     root: Retained<CALayer>,
     pictures: Retained<CALayer>,
     focus_ring: Retained<CALayer>,
@@ -465,11 +560,16 @@ struct DisplayOverview {
     help: Retained<CATextLayer>,
     help_index: Option<usize>,
     last_percentage: i32,
-    captures: Option<cgs::compositor::preview::PreviewCompositor>,
+    captures: Option<cgs::compositor::preview::PreviewCaptureSession>,
     clock: Option<crate::sys::display_link::DisplayLink>,
     camera_input: Instant,
     sources: Vec<cgs::compositor::preview::PreviewSource>,
     policy_dirty: bool,
+    capture_dirty: Arc<AtomicBool>,
+    capture_pixels: usize,
+    refresh_rate: f32,
+    decoration_duration: f64,
+    wake: Option<crate::actor::mission_control::Sender>,
     dragged: Option<WindowId>,
     applied: Option<(Camera, f32)>,
     // CAContext must detach before its CGS window is released.
@@ -481,6 +581,7 @@ impl DisplayOverview {
         info: ScreenInfo,
         workspaces: Vec<RuntimeWorkspaceData>,
         mtm: MainThreadMarker,
+        wallpaper: Option<&CGImage>,
     ) -> Option<Self> {
         let screen =
             NSScreen::screens(mtm).iter().find(|s| s.get_number().ok() == Some(info.id))?;
@@ -497,27 +598,22 @@ impl DisplayOverview {
         root.setGeometryFlipped(true);
         root.setMasksToBounds(true);
         let background = layer(rect(0., -inset, full.size.width, full.size.height), scale);
-        // A native desktop asset, decoded once per overview context; no wallpaper capture stream.
-        let wallpaper_url = NSWorkspace::sharedWorkspace().desktopImageURLForScreen(&screen);
-        let wallpaper_key = wallpaper_url
-            .as_ref()
-            .and_then(|url| url.absoluteString())
-            .map(|url| url.to_string());
-        let mut background_ready = false;
-        if let Some(url) = wallpaper_url
+        // Prefer the startup snapshot; decode the native image only as a fallback.
+        if let Some(image) = wallpaper {
+            image_contents(&background, image);
+        } else if let Some(url) = NSWorkspace::sharedWorkspace().desktopImageURLForScreen(&screen)
             && let Some(image) = NSImage::initWithContentsOfURL(NSImage::alloc(), &url)
             && let Some(image) = unsafe {
                 image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
             }
         {
             image_contents(&background, &image);
-            background_ready = true;
-            unsafe {
-                background.setContentsGravity(objc2_quartz_core::kCAGravityResizeAspectFill);
-            }
         } else {
-            // Native solid-color desktops and unavailable dynamic assets have no file to decode.
+            // No usable image file; retain a neutral background if snapshot capture also fails.
             background.setBackgroundColor(Some(&NSColor::windowBackgroundColor().CGColor()));
+        }
+        unsafe {
+            background.setContentsGravity(objc2_quartz_core::kCAGravityResizeAspectFill);
         }
         background.setOpacity(0.);
         root.addSublayer(&background);
@@ -526,11 +622,11 @@ impl DisplayOverview {
         pictures.setAnchorPoint(CGPoint::ZERO);
         root.addSublayer(&pictures);
         let focus_ring = layer(CGRect::ZERO, scale);
-        focus_ring.setZPosition(1.5);
+        focus_ring.setZPosition(2.);
         focus_ring.setBorderWidth(2.5);
         focus_ring.setBorderColor(Some(&NSColor::controlAccentColor().CGColor()));
         focus_ring.setHidden(true);
-        root.addSublayer(&focus_ring);
+        pictures.addSublayer(&focus_ring);
         let window = CgsWindow::new_compositor(bounds, 0.).ok()?;
         window.set_resolution(scale).ok()?;
         window.set_level(19).ok()?;
@@ -606,9 +702,6 @@ impl DisplayOverview {
             home: camera,
             motion: None,
             background,
-            desktop_snapshot: None,
-            background_ready,
-            wallpaper_key,
             root,
             pictures,
             focus_ring,
@@ -622,6 +715,11 @@ impl DisplayOverview {
             camera_input: Instant::now(),
             sources: Vec::new(),
             policy_dirty: true,
+            capture_dirty: Arc::new(AtomicBool::new(true)),
+            capture_pixels: CAPTURE_PIXELS,
+            refresh_rate: screen.maximumFramesPerSecond().max(1) as f32,
+            decoration_duration: 0.,
+            wake: None,
             dragged: None,
             applied: None,
             _surface: surface,
@@ -780,6 +878,7 @@ impl DisplayOverview {
                 );
             }
         }
+        self.update_stacking(self.selection.window);
         self.invalidate_scene();
     }
 
@@ -832,27 +931,80 @@ impl DisplayOverview {
     }
 
     fn apply_camera(&mut self, decorations: f32) {
-        if self.applied == Some((self.camera, decorations)) {
+        let camera = self.motion.as_ref().map_or(self.camera, |motion| motion.to);
+        if self.applied == Some((camera, decorations))
+            && !self.policy_dirty
+            && self.motion.as_ref().is_none_or(|motion| motion.submitted)
+        {
             return;
         }
-        let previous = self.applied.replace((self.camera, decorations));
-        let zoom = self.camera.zoom;
+        let previous = self.applied.replace((camera, decorations));
+        let zoom = camera.zoom;
         let geometry = previous.is_none();
         let zoom_changed = previous.is_none_or(|(camera, _)| camera.zoom != zoom);
         let opacity_changed = previous.is_none_or(|(_, opacity)| opacity != decorations);
-        self.pictures.setPosition(CGPoint::new(
-            -self.camera.position.x * zoom,
-            -self.camera.position.y * zoom,
-        ));
-        if zoom_changed {
-            self.pictures.setAffineTransform(CGAffineTransform {
-                a: zoom,
-                b: 0.,
-                c: 0.,
-                d: zoom,
-                tx: 0.,
-                ty: 0.,
-            });
+        let key = NSString::from_str("camera");
+        let submitting = self.motion.as_ref().is_some_and(|motion| !motion.submitted);
+        if let Some(motion) = &mut self.motion {
+            if !motion.submitted {
+                motion.submitted = true;
+                motion.start = Instant::now();
+                // Both curves are cubic polynomials. Linear time control points
+                // reproduce the camera math exactly without sampled keyframes.
+                let animation =
+                    CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str("transform")));
+                let from = unsafe { NSValue::valueWithCATransform3D(motion.from.transform()) };
+                let to = unsafe { NSValue::valueWithCATransform3D(motion.to.transform()) };
+                unsafe {
+                    animation.setFromValue(Some(&from));
+                    animation.setToValue(Some(&to));
+                }
+                animation.setTimingFunction(Some(
+                    &objc2_quartz_core::CAMediaTimingFunction::functionWithControlPoints(
+                        1. / 3.,
+                        match motion.curve {
+                            MotionCurve::Enter => 1.,
+                            MotionCurve::Smooth => 0.,
+                            MotionCurve::Retarget(slope) => (slope / 3.) as f32,
+                        },
+                        2. / 3.,
+                        1.,
+                    ),
+                ));
+                animation.setDuration(motion.duration);
+                if animation.respondsToSelector(objc2::sel!(setPreferredFrameRateRange:)) {
+                    animation.setPreferredFrameRateRange(objc2_quartz_core::CAFrameRateRange::new(
+                        30_f32.min(self.refresh_rate),
+                        self.refresh_rate,
+                        self.refresh_rate,
+                    ));
+                }
+                let completion = CameraCompletion::alloc()
+                    .set_ivars((motion.completed.clone(), self.wake.clone()));
+                let completion: Retained<CameraCompletion> =
+                    unsafe { objc2::msg_send![super(completion), init] };
+                animation.setDelegate(Some(ProtocolObject::from_ref(&*completion)));
+                self.pictures.setPosition(CGPoint::ZERO);
+                self.pictures.setTransform(motion.to.transform());
+                self.pictures.addAnimation_forKey(&animation, Some(&key));
+                if let Some(clock) = &self.clock {
+                    clock.set_paused(true);
+                }
+            }
+        } else {
+            self.pictures.removeAnimationForKey(&key);
+            self.pictures.setPosition(CGPoint::ZERO);
+            self.pictures.setTransform(self.camera.transform());
+        }
+        // Once exit chrome has faded, the compositor needs no decoration,
+        // percentage-text, culling, or geometry writes on subsequent ticks.
+        if !geometry
+            && !submitting
+            && !opacity_changed
+            && decorations == 0.
+            && self.motion.is_some()
+        {
+            return;
         }
         let factor = (zoom / OVERVIEW_ZOOM).sqrt().clamp(0.75, 1.1);
         let viewport = CGRect::new(CGPoint::ZERO, self.bounds.size);
@@ -861,8 +1013,13 @@ impl DisplayOverview {
                 region.origin,
                 CGSize::new(self.info.frame.size.width, self.workspace_height),
             ));
-            let group = self.camera.frame(bounds);
-            let hidden = !intersects(group, viewport) || group.max().y < 44. * factor;
+            let group = camera.frame(bounds);
+            let visible = intersects(group, viewport) && group.max().y >= 44. * factor;
+            let hidden = !visible
+                && self
+                    .motion
+                    .as_ref()
+                    .is_none_or(|motion| !intersects(motion.from.frame(bounds), viewport));
             if region.label.isHidden() != hidden {
                 region.label.setHidden(hidden);
             }
@@ -871,7 +1028,37 @@ impl DisplayOverview {
                 let x =
                     group.origin.x.max(12.).min((self.bounds.size.width - width - 12.).max(12.));
                 let y = (group.origin.y - 38. * factor).max(12.);
+                if self.motion.is_none() {
+                    region.label.removeAnimationForKey(&NSString::from_str("position"));
+                }
+                let position = unsafe { region.label.presentationLayer() }
+                    .map_or(region.label.position(), |p| p.position());
                 region.label.setPosition(CGPoint::new(x, y));
+                if submitting && let Some(motion) = &self.motion {
+                    let animation = CABasicAnimation::animationWithKeyPath(Some(
+                        &NSString::from_str("position"),
+                    ));
+                    unsafe {
+                        animation.setFromValue(Some(&NSValue::valueWithPoint(position)));
+                        animation.setToValue(Some(&NSValue::valueWithPoint(CGPoint::new(x, y))));
+                    }
+                    animation.setDuration(motion.duration);
+                    animation.setTimingFunction(Some(
+                        &objc2_quartz_core::CAMediaTimingFunction::functionWithControlPoints(
+                            1. / 3.,
+                            match motion.curve {
+                                MotionCurve::Enter => 1.,
+                                MotionCurve::Smooth => 0.,
+                                MotionCurve::Retarget(slope) => (slope / 3.) as f32,
+                            },
+                            2. / 3.,
+                            1.,
+                        ),
+                    ));
+                    region
+                        .label
+                        .addAnimation_forKey(&animation, Some(&NSString::from_str("position")));
+                }
                 if zoom_changed {
                     region.label.setAffineTransform(CGAffineTransform {
                         a: factor,
@@ -884,11 +1071,14 @@ impl DisplayOverview {
                 }
             }
             if opacity_changed {
-                region.label.setOpacity(decorations);
+                decoration_fade(&region.label, false, decorations, self.decoration_duration);
             }
         }
         for w in &self.windows {
-            let visible = intersects(self.camera.frame(w.world), viewport);
+            let visible = intersects(camera.frame(w.world), viewport)
+                || self.motion.as_ref().is_some_and(|m| {
+                    intersects(union(m.from.frame(w.world), m.to.frame(w.world)), viewport)
+                });
             let hidden = !visible || self.dragged == Some(w.data.id);
             if w.shadow.isHidden() != hidden {
                 w.shadow.setHidden(hidden);
@@ -899,7 +1089,7 @@ impl DisplayOverview {
                 } else {
                     0.
                 });
-                w.shadow.setShadowOpacity(0.28 * decorations);
+                decoration_fade(&w.shadow, true, 0.28 * decorations, self.decoration_duration);
             }
             if geometry {
                 w.apply_geometry();
@@ -912,7 +1102,7 @@ impl DisplayOverview {
             self.last_percentage = percent;
         }
         if opacity_changed {
-            self.controls.setOpacity(decorations);
+            decoration_fade(&self.controls, false, decorations, self.decoration_duration);
         }
     }
 
@@ -923,27 +1113,69 @@ impl DisplayOverview {
             && selected.is_some();
         self.focus_ring.setHidden(!visible);
         if let Some(w) = selected {
-            let camera = self.applied.map_or(self.camera, |(camera, _)| camera);
-            self.focus_ring.setFrame(camera.frame(w.world));
-            self.focus_ring.setCornerRadius(10. * camera.zoom);
+            self.focus_ring.setFrame(w.world);
+            self.focus_ring.setBorderWidth(
+                2.5 / self.applied.map_or(self.camera.zoom, |(camera, _)| camera.zoom),
+            );
+            self.focus_ring.setCornerRadius(10.);
         }
-        self.focus_ring.setOpacity(opacity);
+        if self.focus_ring.opacity() != opacity {
+            decoration_fade(&self.focus_ring, false, opacity, self.decoration_duration);
+        }
     }
 
     fn request_camera_frame(&mut self) {
         self.camera_input = Instant::now();
         if let Some(clock) = &self.clock {
-            clock.set_paused(false);
+            clock.set_paused(self.motion.as_ref().is_some_and(|motion| motion.submitted));
         }
     }
 
     fn animate(&mut self, to: Camera, duration: f64) {
+        let now = Instant::now();
+        let velocity = self.motion.as_ref().map(|motion| {
+            let t =
+                (now.duration_since(motion.start).as_secs_f64() / motion.duration).clamp(0., 1.);
+            let derivative = match motion.curve {
+                MotionCurve::Enter => 3. * (1. - t).powi(2),
+                MotionCurve::Smooth => 6. * t * (1. - t),
+                MotionCurve::Retarget(slope) => {
+                    slope + 2. * (3. - 2. * slope) * t + 3. * (slope - 2.) * t * t
+                }
+            } / motion.duration;
+            let a = motion.from.transform();
+            let b = motion.to.transform();
+            [
+                (b.m11 - a.m11) * derivative,
+                (b.m41 - a.m41) * derivative,
+                (b.m42 - a.m42) * derivative,
+            ]
+        });
+        self.sample(now);
+        let curve = velocity.map_or(MotionCurve::Enter, |velocity| {
+            let a = self.camera.transform();
+            let b = to.transform();
+            let delta = [b.m11 - a.m11, b.m41 - a.m41, b.m42 - a.m42];
+            let distance = delta.iter().map(|v| v * v).sum::<f64>();
+            let slope = if distance > 1e-9 {
+                velocity.iter().zip(delta).map(|(v, d)| v * d).sum::<f64>() * duration / distance
+            } else {
+                0.
+            };
+            // A scalar transform animation cannot preserve sideways velocity.
+            // Projection preserves forward speed; clamping prevents overshoot.
+            MotionCurve::Retarget(slope.clamp(0., 3.))
+        });
+        self.pictures.removeAnimationForKey(&NSString::from_str("camera"));
+        self.pictures.setTransform(self.camera.transform());
         self.motion = Some(Motion {
             from: self.camera,
             to,
             start: Instant::now(),
             duration: duration.max(0.001),
-            curve: MotionCurve::Settle,
+            curve,
+            submitted: false,
+            completed: Arc::new(AtomicBool::new(false)),
         });
         self.request_camera_frame();
     }
@@ -951,10 +1183,25 @@ impl DisplayOverview {
     fn sample(&mut self, now: Instant) {
         if let Some(motion) = &self.motion {
             let (camera, done) = motion.sample(now);
-            self.camera = camera;
-            if done {
+            self.camera = unsafe { self.pictures.presentationLayer() }
+                .filter(|_| motion.submitted)
+                .map(|layer| {
+                    let t = layer.transform();
+                    Camera {
+                        zoom: t.m11,
+                        position: CGPoint::new(-t.m41 / t.m11, -t.m42 / t.m11),
+                    }
+                })
+                .unwrap_or(camera);
+            if motion.completed.load(Ordering::Acquire)
+                || (!motion.submitted && done)
+                || now.duration_since(motion.start).as_secs_f64() >= motion.duration + 0.25
+            {
+                self.camera = motion.to;
                 self.motion = None;
+                self.decoration_duration = 0.;
                 self.policy_dirty = true;
+                self.request_camera_frame();
             }
         }
     }
@@ -970,9 +1217,48 @@ impl DisplayOverview {
             .map(|r| r.id)
     }
 
+    /// Keep capture inventory stable while focus changes the visible stacking order.
+    fn update_stacking(&mut self, selected: Option<WindowId>) {
+        for w in &self.windows {
+            let focused =
+                self.workspaces.iter().find(|ws| ws.workspace_id == w.workspace).and_then(|ws| {
+                    selected
+                        .filter(|id| ws.windows.iter().any(|window| window.id == *id))
+                        .or(ws.focused_window)
+                });
+            w.shadow.setZPosition(if w.data.is_floating {
+                1.5
+            } else if focused == Some(w.data.id) {
+                1.
+            } else {
+                0.5
+            });
+        }
+        // Drag targeting uses front-to-back order, just like pointer picking.
+        for region in &mut self.regions {
+            region.drops.targets.sort_by(|a, b| {
+                let rank = |id| {
+                    self.windows
+                        .iter()
+                        .enumerate()
+                        .find(|(_, w)| w.data.id == id)
+                        .map_or((0., 0), |(index, w)| (w.shadow.zPosition(), index))
+                };
+                let a = rank(a.window);
+                let b = rank(b.window);
+                b.0.total_cmp(&a.0).then_with(|| b.1.cmp(&a.1))
+            });
+        }
+    }
+
     fn hit(&self, p: CGPoint) -> Option<usize> {
         let world = self.camera.unproject(self.local(p));
-        self.windows.iter().rposition(|w| contains(w.world, world))
+        self.windows
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| contains(w.world, world))
+            .max_by(|(_, a), (_, b)| a.shadow.zPosition().total_cmp(&b.shadow.zPosition()))
+            .map(|(index, _)| index)
     }
 
     fn update_sources(&mut self, selected: Option<WindowId>, immediate: bool) {
@@ -988,6 +1274,24 @@ impl DisplayOverview {
             || self.windows.iter().zip(&self.sources).any(|(w, s)| {
                 w.data.info.sys_id.unwrap().as_u32() != s.window_id || w.data.id.pid != s.process_id
             });
+        // Interactive camera updates can arrive at 120+ Hz. Reuse the current
+        // capture sizes until input settles instead of reconfiguring SCStreams
+        // for every fractional zoom. The existing input clock covers this tail.
+        if !immediate
+            && !inventory_changed
+            && self.dragged.is_none()
+            && self.camera_input.elapsed() < Duration::from_millis(100)
+        {
+            return;
+        }
+        let weight = |w: &SceneWindow| {
+            if intersects(camera.frame(w.world), viewport) || self.dragged == Some(w.data.id) {
+                if selected == Some(w.data.id) { 4 } else { 2 }
+            } else {
+                1
+            }
+        };
+        let total_weight = self.windows.iter().map(&weight).sum::<usize>().max(1);
         self.sources.clear();
         for w in &self.windows {
             let projected = camera.frame(w.world);
@@ -1001,6 +1305,12 @@ impl DisplayOverview {
             let zoom = zoom.min(if visible { 1. } else { 0.20 });
             let width = (w.world.size.width * zoom * self.scale).ceil().max(1.) as usize;
             let height = (w.world.size.height * zoom * self.scale).ceil().max(1.) as usize;
+            let pixels = (self.capture_pixels as f64 * weight(w) as f64 / total_weight as f64)
+                .min(if important { 2_000_000. } else { 900_000. })
+                .max(1.);
+            let shrink = (pixels / (width as f64 * height as f64)).sqrt().min(1.);
+            let width = (width as f64 * shrink).floor().max(1.) as usize;
+            let height = (height as f64 * shrink).floor().max(1.) as usize;
             self.sources.push(cgs::compositor::preview::PreviewSource {
                 window_id: w.data.info.sys_id.unwrap().as_u32(),
                 process_id: w.data.id.pid,
@@ -1043,6 +1353,57 @@ impl DisplayOverview {
     }
 }
 
+// One capture per startup display, retained independently of window preview sessions.
+#[derive(Default)]
+pub(crate) struct DesktopBackgrounds(
+    Vec<(
+        u32,
+        Option<cgs::compositor::preview::DesktopSnapshot>,
+        Option<Retained<CGImage>>,
+    )>,
+);
+impl DesktopBackgrounds {
+    pub(crate) fn new(mtm: MainThreadMarker) -> Self {
+        if !CGPreflightScreenCaptureAccess() {
+            return Self::default();
+        }
+        Self(
+            NSScreen::screens(mtm)
+                .iter()
+                .filter_map(|screen| {
+                    let id = screen.get_number().ok()?.as_u32();
+                    let snapshot = cgs::compositor::preview::DesktopSnapshot::new(
+                        id,
+                        screen.backingScaleFactor(),
+                        || {},
+                    )
+                    .map_err(|error| tracing::warn!(?error, "Desktop snapshot unavailable"))
+                    .ok()?;
+                    Some((id, Some(snapshot), None))
+                })
+                .collect(),
+        )
+    }
+
+    fn image(&mut self, display: u32) -> Option<&CGImage> {
+        let (_, snapshot, image) = self.0.iter_mut().find(|(id, _, _)| *id == display)?;
+        if let Some(pending) = snapshot {
+            match pending.take_image() {
+                Ok(Some(captured)) => {
+                    *image = Some(captured);
+                    *snapshot = None;
+                }
+                Err(error) => {
+                    tracing::warn!(?error, "Desktop background unavailable");
+                    *snapshot = None;
+                }
+                Ok(None) => {}
+            }
+        }
+        image.as_deref()
+    }
+}
+
 // Logical scene state survives focus handoffs; capture producers never do.
 struct ViewState {
     camera: Camera,
@@ -1051,8 +1412,7 @@ struct ViewState {
     selection: Selection,
     homes: Vec<(crate::model::VirtualWorkspaceId, CGPoint)>,
     windows: Vec<(RuntimeWindowData, crate::model::VirtualWorkspaceId, CGRect)>,
-    wallpaper: Option<Retained<AnyObject>>,
-    wallpaper_key: Option<String>,
+    capture_dirty: Arc<AtomicBool>,
 }
 #[derive(Default)]
 pub(crate) struct PreviewCache {
@@ -1060,7 +1420,7 @@ pub(crate) struct PreviewCache {
         ScreenInfo,
         CGRect,
         f64,
-        cgs::compositor::preview::PreviewCompositor,
+        cgs::compositor::preview::PreviewCaptureSession,
         ViewState,
     )>,
 }
@@ -1068,7 +1428,7 @@ impl PreviewCache {
     fn take(
         &mut self,
         d: &mut DisplayOverview,
-    ) -> Option<cgs::compositor::preview::PreviewCompositor> {
+    ) -> Option<cgs::compositor::preview::PreviewCaptureSession> {
         self.captures.retain(|(key, bounds, scale, _, _)| {
             key.display_uuid != d.info.display_uuid
                 || (key.id == d.info.id
@@ -1081,15 +1441,7 @@ impl PreviewCache {
             .iter()
             .position(|(key, _, _, _, _)| key.display_uuid == d.info.display_uuid)?;
         let (_, _, _, captures, state) = self.captures.swap_remove(i);
-        if !d.background_ready
-            && state.wallpaper_key == d.wallpaper_key
-            && let Some(image) = state.wallpaper
-        {
-            unsafe {
-                d.background.setContents(Some(&image));
-            }
-            d.background_ready = true;
-        }
+        d.capture_dirty = state.capture_dirty;
         if state
             .homes
             .iter()
@@ -1192,52 +1544,27 @@ fn start_display(
     mut cache: Option<&mut PreviewCache>,
 ) {
     let tx = wake.clone();
+    d.wake = Some(wake.clone());
     d.clock = Some(crate::sys::display_link::DisplayLink::for_display_callback(
         d.info.id.as_u32(),
         move || tx.send(crate::actor::mission_control::Event::PumpPreviews),
     ));
     if enabled {
         d.captures = cache.as_mut().and_then(|c| c.take(d));
-        if !d.background_ready {
+        if d.captures.is_none() {
             let tx = wake.clone();
-            d.desktop_snapshot = cgs::compositor::preview::DesktopSnapshot::new(
-                d.info.id.as_u32(),
-                d.scale,
-                move || tx.send(crate::actor::mission_control::Event::PumpPreviews),
-            )
-            .map_err(|error| tracing::warn!(?error, "Desktop snapshot unavailable"))
-            .ok();
-        }
-        if let Some(m) = &mut d.captures {
-            let _ = m.attach_to(d._window.id(), &d.root);
-        } else {
-            let tx = wake.clone();
-            d.captures = cgs::compositor::preview::PreviewCompositor::new_attached(
-                d._window.id(),
-                &d.root,
-                d.bounds,
-                d.scale,
-                move || tx.send(crate::actor::mission_control::Event::PumpPreviews),
-            )
+            let dirty = d.capture_dirty.clone();
+            d.captures = cgs::compositor::preview::PreviewCaptureSession::new(move || {
+                if !dirty.swap(true, Ordering::AcqRel) {
+                    tx.send(crate::actor::mission_control::Event::PumpPreviews);
+                }
+            })
             .map_err(|error| tracing::warn!(?error, "Spatial capture unavailable"))
             .ok();
         }
-        // Bootstrap at the useful overview resolution. Capturing a full Retina
-        // desktop first can exhaust admission before the entry animation starts.
-        d.update_sources_at(d.selection.window, true, d.home);
-        if let Some(m) = &mut d.captures {
-            if let Err(error) = m.set_visual_scene(&[]).and_then(|()| {
-                if d.background_ready || d.desktop_snapshot.is_none() {
-                    m.show()
-                } else {
-                    Ok(())
-                }
-            }) {
-                tracing::warn!(?error, "Spatial capture startup failed");
-            }
-            tracing::debug!(windows=d.windows.len(),stats=?m.stats(),"Spatial capture started");
-        }
+        d.capture_dirty.store(true, Ordering::Release);
     }
+
     if d.captures.is_none() {
         d.camera = d.home;
         d.background.setOpacity(1.);
@@ -1266,7 +1593,7 @@ struct Drag {
 // Exiting keeps textures until the reactor has installed a visible, matching real window.
 enum Phase {
     Waiting(Instant),
-    Entering(Instant),
+    Entering,
     Overview,
     Exiting {
         window: Option<WindowId>,
@@ -1277,21 +1604,22 @@ enum Phase {
 
 struct ExitScene {
     target: OverviewTarget,
-    geometry: Vec<(WindowId, CGRect, CGRect)>,
     outgoing: Vec<WindowId>,
     start: Instant,
     duration: f64,
 }
+
 pub struct OverviewSession {
     displays: Vec<DisplayOverview>,
     active: usize,
     selection: Selection,
     drag: Option<Drag>,
-    pending_drop: Option<(Drag, Option<cgs::compositor::preview::PreviewFrame>)>,
+    pending_drop: Option<(Drag, Option<cgs::compositor::preview::PreviewSurfaceFrame>)>,
     pressed: Option<(CGPoint, Camera)>,
     drop: Option<OverviewDrop>,
     phase: Phase,
     exit: Option<ExitScene>,
+    reveal: Option<Instant>,
     show_empty: bool,
     shared: bool,
     duration: f64,
@@ -1315,9 +1643,10 @@ impl OverviewSession {
         mtm: MainThreadMarker,
         settings: &MissionControlSettings,
         shared: bool,
-        _cache: &mut Option<PreviewCache>,
+        backgrounds: &mut DesktopBackgrounds,
     ) -> Option<Self> {
-        let _tx = LayerTransaction::disabled().flush_on_commit();
+        let construction_start = Instant::now();
+        let _tx = LayerTransaction::disabled();
         let mut displays = Vec::new();
         let mut active = 0;
         for d in reactor.query_displays() {
@@ -1336,14 +1665,19 @@ impl OverviewSession {
             if workspaces.is_empty() {
                 continue;
             }
-            if let Some(view) = DisplayOverview::new(d.info, workspaces, mtm) {
+            let wallpaper = backgrounds.image(d.info.id.as_u32());
+            if let Some(view) = DisplayOverview::new(d.info, workspaces, mtm, wallpaper) {
                 if d.is_active_context {
                     active = displays.len();
                 }
                 displays.push(view);
             }
         }
-        tracing::debug!(displays = displays.len(), "Spatial overview hosts created");
+        tracing::debug!(
+            displays = displays.len(),
+            construction_ms = construction_start.elapsed().as_secs_f64() * 1000.,
+            "Spatial overview hosts created"
+        );
         let d = displays.get(active)?;
         let ws = d.workspaces.iter().find(|w| w.is_active).unwrap_or(&d.workspaces[0]);
         let selection = Selection {
@@ -1360,6 +1694,7 @@ impl OverviewSession {
             drop: None,
             phase: Phase::Waiting(Instant::now()),
             exit: None,
+            reveal: None,
             wake: None,
             previews: false,
             show_empty: settings.show_empty_workspaces,
@@ -1391,11 +1726,20 @@ impl OverviewSession {
         self.activate_display(self.active);
         self.wake = Some(wake.clone());
         self.previews = enabled;
+        let pixels = CAPTURE_PIXELS / self.displays.len().max(1);
         for d in &mut self.displays {
+            d.capture_pixels = pixels;
             start_display(d, enabled, &wake, cache.as_deref_mut());
         }
         self.selection = self.displays[self.active].selection;
         self.change_selection(self.selection);
+        // Cached IOSurfaces are already presentable. Submit the warm opening
+        // before source inventory changes can initialize or resize captures.
+        drop(_tx);
+        self.pump_previews();
+        for d in &mut self.displays {
+            d.update_sources_at(d.selection.window, true, d.home);
+        }
         if self.displays.iter().all(|d| d.captures.is_none() || d.windows.is_empty()) {
             self.phase = Phase::Overview;
             for d in &mut self.displays {
@@ -1406,43 +1750,45 @@ impl OverviewSession {
     }
 
     pub(crate) fn retain_previews(&mut self, cache: &mut Option<PreviewCache>) {
+        // Remove the cover before stopping producers or releasing cached frames.
+        // Capture cleanup must not extend the visible close transition.
+        for d in &self.displays {
+            if let Some(clock) = &d.clock {
+                clock.set_paused(true);
+            }
+            if let Err(error) = d._window.order_out() {
+                tracing::warn!(?error, "Failed to hide overview host");
+            }
+        }
         let cache = cache.get_or_insert_with(Default::default);
         cache.captures.clear();
-        let mut reserved = 0;
         for d in &mut self.displays {
             if let Some(mut m) = d.captures.take() {
-                tracing::debug!(display = %d.info.display_uuid, stats = ?m.stats(), diagnostics = ?m.diagnostics(), "Spatial overview closed");
-                let _ = m.hide();
-                let _ = m.set_visual_scene(&[]);
-                let _ = m.set_sources(&[]);
-                reserved +=
-                    (d.bounds.size.width * d.scale * d.bounds.size.height * d.scale * 16.) as usize;
-                if reserved <= 256 * 1024 * 1024 {
-                    let camera = if matches!(self.phase, Phase::Overview) {
-                        d.motion.as_ref().map_or(d.camera, |m| m.to)
-                    } else {
-                        d.home
-                    };
-                    let state = ViewState {
-                        camera,
-                        anchor: d.home_anchor,
-                        workspace: d
-                            .workspaces
-                            .iter()
-                            .find(|ws| ws.is_active)
-                            .map(|ws| ws.workspace_id),
-                        selection: d.selection,
-                        homes: d.regions.iter().map(|r| (r.id, r.origin)).collect(),
-                        windows: d
-                            .windows
-                            .iter()
-                            .map(|w| (w.data.clone(), w.workspace, w.world))
-                            .collect(),
-                        wallpaper: unsafe { d.background.contents() },
-                        wallpaper_key: d.wallpaper_key.clone(),
-                    };
-                    cache.captures.push((d.info.clone(), d.bounds, d.scale, m, state));
-                }
+                tracing::debug!(display = %d.info.display_uuid, stats = ?m.stats(), "Spatial overview closed");
+                m.clear();
+                let camera = if matches!(self.phase, Phase::Overview) {
+                    d.motion.as_ref().map_or(d.camera, |m| m.to)
+                } else {
+                    d.home
+                };
+                let state = ViewState {
+                    camera,
+                    anchor: d.home_anchor,
+                    workspace: d
+                        .workspaces
+                        .iter()
+                        .find(|ws| ws.is_active)
+                        .map(|ws| ws.workspace_id),
+                    selection: d.selection,
+                    homes: d.regions.iter().map(|r| (r.id, r.origin)).collect(),
+                    windows: d
+                        .windows
+                        .iter()
+                        .map(|w| (w.data.clone(), w.workspace, w.world))
+                        .collect(),
+                    capture_dirty: d.capture_dirty.clone(),
+                };
+                cache.captures.push((d.info.clone(), d.bounds, d.scale, m, state));
             }
         }
     }
@@ -1452,6 +1798,7 @@ impl OverviewSession {
         topology: &[RuntimeDisplayData],
         catalog: &[RuntimeWorkspaceData],
         moved: Option<WindowId>,
+        backgrounds: &mut DesktopBackgrounds,
     ) {
         let active_uuid = self.displays.get(self.active).map(|d| d.info.display_uuid.clone());
         // Workspace activation changes the live model behind us. Keep the visible
@@ -1575,9 +1922,11 @@ impl OverviewSession {
                 native.info.clone(),
                 workspaces,
                 MainThreadMarker::new().unwrap(),
+                backgrounds.image(native.info.id.as_u32()),
             ) {
                 if let Some(wake) = &self.wake {
                     start_display(&mut d, self.previews, wake, None);
+                    d.update_sources_at(d.selection.window, true, d.home);
                 }
                 d.camera = d.home;
                 d.background.setOpacity(1.);
@@ -1591,7 +1940,9 @@ impl OverviewSession {
             .position(|d| Some(&d.info.display_uuid) == active_uuid.as_ref())
             .unwrap_or(0);
         self.selection = self.displays.get(self.active).map_or(self.selection, |d| d.selection);
+        let pixels = CAPTURE_PIXELS / self.displays.len().max(1);
         for d in &mut self.displays {
+            d.capture_pixels = pixels;
             d.workspaces = workspaces_for(d.info.space);
             if self.shared {
                 for ws in &mut d.workspaces {
@@ -1633,6 +1984,7 @@ impl OverviewSession {
                     .find(|ws| ws.index == d.selection.workspace)
                     .and_then(|ws| ws.focused_window);
             }
+            d.update_stacking(d.selection.window);
             if empty && !d.windows.is_empty() {
                 d.home = d.default_camera();
                 d.animate(d.home, self.duration);
@@ -1655,10 +2007,17 @@ impl OverviewSession {
         }
         if let Some((id, Some(frame))) = completed {
             for d in &mut self.displays {
-                if d.windows.iter().any(|w| w.data.id == id)
-                    && let Some(m) = &mut d.captures
-                {
-                    m.reuse_frame(&frame);
+                if let Some(window) = d.windows.iter_mut().find(|window| {
+                    window.data.id == id
+                        && window.data.id.pid == frame.process_id()
+                        && window
+                            .data
+                            .info
+                            .sys_id
+                            .is_some_and(|sys_id| sys_id.as_u32() == frame.window_id())
+                }) {
+                    window.set_frame(&frame);
+                    window.shadow.setOpacity(1.);
                 }
             }
         }
@@ -1685,10 +2044,17 @@ impl OverviewSession {
     }
 
     pub(crate) fn needs_handoff(&self) -> bool {
-        self.displays
-            .get(self.active)
-            .and_then(|d| d.captures.as_ref())
-            .is_some_and(|m| m.is_visible() && m.stats().presented_frames > 0)
+        !matches!(self.phase, Phase::Waiting(_))
+            && self.displays.get(self.active).is_some_and(|d| {
+                d.captures.is_some()
+                    && d.windows.iter().any(|w| {
+                        w.preview.has_frame()
+                            && intersects(
+                                d.camera.frame(w.world),
+                                CGRect::new(CGPoint::ZERO, d.bounds.size),
+                            )
+                    })
+            })
     }
 
     fn activate(&mut self, dismiss: bool) -> Option<OverviewAction> {
@@ -1715,7 +2081,18 @@ impl OverviewSession {
         } else {
             Camera {
                 zoom: 1.,
-                position: workspace.map_or(CGPoint::ZERO, |ws| d.workspace_origin(ws.index)),
+                position: chosen
+                    .and_then(|w| {
+                        w.data.layout_frame.map(|frame| {
+                            CGPoint::new(
+                                w.world.origin.x - frame.origin.x + d.bounds.origin.x,
+                                w.world.origin.y - frame.origin.y + d.bounds.origin.y,
+                            )
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        workspace.map_or(CGPoint::ZERO, |ws| d.workspace_origin(ws.index))
+                    }),
             }
         };
         let action = if !dismiss {
@@ -1747,12 +2124,12 @@ impl OverviewSession {
         if !self.needs_handoff() {
             return action.or(Some(OverviewAction::Dismiss));
         }
+        self.reveal = None;
+        self.pressed = None;
         let window = if dismiss { None } else { self.selection.window };
-        if let Some(w) =
-            self.displays[self.active].windows.iter().find(|w| Some(w.data.id) == window)
-        {
-            // The selected preview must match the real window being raised at handoff.
-            w.shadow.setZPosition(1.);
+        for (index, d) in self.displays.iter_mut().enumerate() {
+            // Dismiss restores desktop focus; activation preserves the chosen preview.
+            d.update_stacking((!dismiss && index == self.active).then_some(window).flatten());
         }
         let now = Instant::now();
         for d in &mut self.displays {
@@ -1764,8 +2141,11 @@ impl OverviewSession {
             start: now,
             target_ready: dismiss,
         };
-        // Focus/AX work runs behind the animation, never ahead of its first frame.
+        // Existing layout geometry gives immediate feedback. The reactor still
+        // owns the destination and native reveal; its reply retargets from the
+        // actual presentation transform rather than restarting at overview.
         self.animate_exit(target);
+        tracing::debug!(dismiss, "Overview close submitted");
         action
     }
 
@@ -1785,22 +2165,30 @@ impl OverviewSession {
         }
         let _tx = LayerTransaction::disabled().flush_on_commit();
         let d = &self.displays[self.active];
-        let target = d
-            .windows
-            .iter()
-            .find(|w| Some(w.data.id) == prepared.window)
-            .and_then(|w| {
-                let ws = d.workspaces.iter().find(|ws| ws.workspace_id == w.workspace)?;
-                let frame = prepared.frames.iter().find(|(id, _)| *id == w.data.id)?.1;
-                (ws.display_uuid.as_deref() == Some(&d.info.display_uuid)).then(|| Camera {
-                    zoom: 1.,
-                    position: CGPoint::new(
-                        w.world.origin.x - frame.origin.x + d.bounds.origin.x,
-                        w.world.origin.y - frame.origin.y + d.bounds.origin.y,
-                    ),
+        // Resolve one authoritative destination before submitting the close.
+        // Scrolling translates the strip; its selected window anchors the camera.
+        let target =
+            d.windows
+                .iter()
+                .find(|w| Some(w.data.id) == prepared.window)
+                .filter(|w| {
+                    d.workspaces.iter().any(|ws| {
+                        ws.workspace_id == w.workspace
+                            && ws.display_uuid.as_deref() == Some(&d.info.display_uuid)
+                    })
                 })
-            })
-            .unwrap_or_else(|| d.motion.as_ref().map_or(d.camera, |m| m.to));
+                .and_then(|w| {
+                    prepared.frames.iter().find(|(id, _)| *id == w.data.id).map(|(_, frame)| {
+                        Camera {
+                            zoom: 1.,
+                            position: CGPoint::new(
+                                w.world.origin.x - frame.origin.x + d.bounds.origin.x,
+                                w.world.origin.y - frame.origin.y + d.bounds.origin.y,
+                            ),
+                        }
+                    })
+                })
+                .unwrap_or_else(|| d.desktop_camera());
         if let Phase::Exiting { target_ready, window, .. } = &mut self.phase {
             *target_ready = true;
             if prepared.window.is_some_and(|id| !prepared.frames.iter().any(|(w, _)| *w == id)) {
@@ -1808,21 +2196,21 @@ impl OverviewSession {
             }
         }
         let now = Instant::now();
-        let remaining = (EXIT_MOTION - now.duration_since(prepared.stamp).as_secs_f64()).max(0.08);
+        let elapsed = prepared.stamp.elapsed().as_secs_f64();
+        let remaining = (EXIT_MOTION - elapsed).max(0.12);
+        tracing::debug!(
+            geometry_wait_ms = elapsed * 1000.,
+            remaining_ms = remaining * 1000.,
+            "Overview close geometry prepared"
+        );
+        self.animate_exit_for(target, remaining);
         let d = &mut self.displays[self.active];
-        if d.motion.as_ref().map_or(d.camera, |m| m.to) != target {
-            // Correct from the currently displayed position, without restarting the whole exit.
-            d.sample(now);
-            d.animate(target, remaining);
-            d.motion.as_mut().unwrap().curve = MotionCurve::Smooth;
-            d.policy_dirty = true;
-        }
         let local_workspace = d
             .workspaces
             .iter()
             .find(|ws| ws.workspace_id == prepared.workspace)
             .is_some_and(|ws| ws.display_uuid.as_deref() == Some(&d.info.display_uuid));
-        let geometry = prepared
+        let geometry: Vec<_> = prepared
             .frames
             .iter()
             .filter(|_| local_workspace)
@@ -1836,6 +2224,44 @@ impl OverviewSession {
                 Some((id, w.world, to))
             })
             .collect();
+        for &(id, from, to) in &geometry {
+            if from == to {
+                continue;
+            }
+            let Some(w) = d.windows.iter_mut().find(|w| w.data.id == id) else {
+                continue;
+            };
+            let transform = CATransform3D::new_affine_transform(CGAffineTransform {
+                a: to.size.width / from.size.width.max(1.),
+                b: 0.,
+                c: 0.,
+                d: to.size.height / from.size.height.max(1.),
+                tx: to.mid().x - from.mid().x,
+                ty: to.mid().y - from.mid().y,
+            });
+            let values = unsafe {
+                [
+                    NSValue::valueWithCATransform3D(w.shadow.transform()),
+                    NSValue::valueWithCATransform3D(transform),
+                ]
+            };
+            let animation =
+                CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str("transform")));
+            unsafe {
+                animation.setFromValue(Some(&values[0]));
+                animation.setToValue(Some(&values[1]));
+            }
+            animation.setDuration(remaining);
+            animation.setTimingFunction(Some(
+                &objc2_quartz_core::CAMediaTimingFunction::functionWithControlPoints(
+                    0.333333, 0., 0.666667, 1.,
+                ),
+            ));
+            // Keep persistent scene coordinates intact; only the exit layer
+            // moves. Caching the reconciled frame would shift the next opening.
+            w.shadow.setTransform(transform);
+            w.shadow.addAnimation_forKey(&animation, Some(&NSString::from_str("exit")));
+        }
         let outgoing = d
             .windows
             .iter()
@@ -1851,28 +2277,36 @@ impl OverviewSession {
             .collect();
         self.exit = Some(ExitScene {
             target: prepared,
-            geometry,
             outgoing,
             start: now,
             duration: remaining,
         });
     }
 
-    fn animate_exit(&mut self, target: Camera) {
+    fn animate_exit(&mut self, target: Camera) { self.animate_exit_for(target, EXIT_MOTION); }
+
+    fn animate_exit_for(&mut self, target: Camera, duration: f64) {
         let now = Instant::now();
         for (i, d) in self.displays.iter_mut().enumerate() {
-            d.animate(
-                if i == self.active {
-                    target
-                } else {
-                    d.desktop_camera()
-                },
-                EXIT_MOTION,
-            );
-            let motion = d.motion.as_mut().unwrap();
-            motion.start = now;
-            motion.curve = MotionCurve::Smooth;
+            let destination = if i == self.active {
+                target
+            } else {
+                d.desktop_camera()
+            };
+            // An unchanged authoritative destination should not stop and restart
+            // an already running close (especially on uninvolved displays).
+            if !d.motion.as_ref().is_some_and(|motion| motion.to == destination) {
+                d.animate(destination, duration);
+                let motion = d.motion.as_mut().unwrap();
+                motion.start = now;
+                if !matches!(motion.curve, MotionCurve::Retarget(_)) {
+                    motion.curve = MotionCurve::Smooth;
+                }
+            }
             d.policy_dirty = true;
+            d.decoration_duration = self.fade_duration.min(0.12);
+            d.apply_camera(0.);
+            d.focus_ring.setHidden(true);
         }
     }
 
@@ -1885,19 +2319,29 @@ impl OverviewSession {
             if let Some(wake) = &self.wake {
                 wake.send(crate::actor::mission_control::Event::RefreshCurrentWorkspace);
             }
-            for d in &self.displays {
-                if let Some(w) = d.windows.iter().find(|w| Some(w.data.id) == self.selection.window)
-                {
-                    w.shadow.setZPosition(0.5);
-                }
+            for d in &mut self.displays {
+                d.update_stacking(d.selection.window);
             }
         }
         let now = Instant::now();
         self.exit = None;
+        let revealing = self.reveal.take().is_some();
         for d in &mut self.displays {
+            if revealing {
+                fade(&d.root, 1.);
+            }
             d.sample(now);
             d.motion = None;
+            d.applied = None;
             d.background.setOpacity(1.);
+            for w in &mut d.windows {
+                if let Some(presentation) = unsafe { w.shadow.presentationLayer() } {
+                    w.world = presentation.frame();
+                }
+                w.shadow.removeAnimationForKey(&NSString::from_str("exit"));
+                w.apply_geometry();
+            }
+            d.apply_camera(1.);
         }
         self.phase = Phase::Overview;
     }
@@ -1912,6 +2356,7 @@ impl OverviewSession {
         let mut target = d.camera;
         target.position.y = d.workspace_origin(ws.index).y + d.workspace_height / 2.
             - d.bounds.size.height / (2. * target.zoom);
+        d.sample(Instant::now());
         d.animate(target, self.duration);
         d.policy_dirty = true;
         self.change_selection(selection);
@@ -1931,6 +2376,7 @@ impl OverviewSession {
                 w.world.mid().x - d.bounds.size.width / (2. * target.zoom),
                 w.world.mid().y - d.bounds.size.height / (2. * target.zoom),
             );
+            d.sample(Instant::now());
             d.animate(target, self.duration);
         }
         d.policy_dirty = true;
@@ -1983,6 +2429,7 @@ impl OverviewSession {
         let selected = selection.window;
         for d in &mut self.displays {
             d.policy_dirty |= previous != selected;
+            d.update_stacking(d.selection.window);
             d.update_focus_ring(d.applied.map_or(0., |(_, opacity)| opacity));
         }
     }
@@ -1991,8 +2438,25 @@ impl OverviewSession {
         if self.displays.is_empty() {
             return Some(OverviewAction::Dismiss);
         }
-        if matches!(self.phase, Phase::Exiting { .. }) && matches!(input, Input::Move(_)) {
+        // Releases and repeated activation keys belong to the closing gesture;
+        // they must not interrupt the exit or restart its handoff deadline.
+        if matches!(self.phase, Phase::Exiting { .. })
+            && matches!(
+                input,
+                Input::Move(_)
+                    | Input::PointerDown(_)
+                    | Input::PointerDrag(_)
+                    | Input::PointerUp(_)
+                    | Input::Click(_)
+                    | Input::Activate
+                    | Input::Dismiss
+                    | Input::EndPan(_)
+            )
+        {
             return None;
+        }
+        for d in &mut self.displays {
+            d.sample(Instant::now());
         }
         let transaction = LayerTransaction::disabled();
         let _tx = if matches!(
@@ -2307,36 +2771,103 @@ impl OverviewSession {
                     }
                 }
             }
-            Input::Up | Input::Down => {
+            Input::SwitchWorkspace(ref selector) | Input::MoveToWorkspace(ref selector, _) => {
+                use crate::common::config::WorkspaceSelector;
+                let d = &self.displays[self.active];
+                let current =
+                    d.workspaces.iter().position(|ws| ws.index == self.selection.workspace)?;
+                let destination = match selector {
+                    WorkspaceSelector::Index(index) => {
+                        d.workspaces.iter().position(|ws| ws.index == *index)
+                    }
+                    WorkspaceSelector::Name(name) if name == "next" => {
+                        (current + 1 < d.workspaces.len()).then_some(current + 1)
+                    }
+                    WorkspaceSelector::Name(name) if name == "prev" => current.checked_sub(1),
+                    WorkspaceSelector::Name(name) => {
+                        d.workspaces.iter().position(|ws| ws.name == *name)
+                    }
+                }?;
+                if matches!(input, Input::MoveToWorkspace(..)) {
+                    self.drop = Some(OverviewDrop {
+                        window: self.selection.window?,
+                        workspace: d.workspaces[destination].workspace_id,
+                        target: None,
+                        frame: d
+                            .windows
+                            .iter()
+                            .find(|w| Some(w.data.id) == self.selection.window)
+                            .filter(|w| w.data.is_floating)
+                            .map(|w| w.data.layout_frame.unwrap_or(w.data.info.frame)),
+                    });
+                    if matches!(input, Input::MoveToWorkspace(_, true)) {
+                        self.select_workspace(destination);
+                    }
+                } else {
+                    self.select_workspace(destination);
+                }
+            }
+            Input::MoveNode(direction) | Input::ConsumeOrExpel(direction) => {
+                use crate::layout_engine::WindowDropAction;
+                let d = &self.displays[self.active];
+                let source = d.windows.iter().find(|w| Some(w.data.id) == self.selection.window)?;
+                let workspace =
+                    d.workspaces.iter().find(|ws| ws.index == source.workspace_index)?;
+                self.drop = Some(OverviewDrop {
+                    window: source.data.id,
+                    workspace: workspace.workspace_id,
+                    target: Some((source.data.id, match input {
+                        Input::ConsumeOrExpel(_) => WindowDropAction::ConsumeOrExpel(direction),
+                        _ => WindowDropAction::Move(direction),
+                    })),
+                    frame: None,
+                });
+            }
+            Input::Up | Input::Down | Input::WorkspaceSteps(_) => {
                 let d = &mut self.displays[self.active];
                 let current = d
                     .workspaces
                     .iter()
                     .position(|ws| ws.index == self.selection.workspace)
                     .unwrap_or(0);
-                let next = if matches!(input, Input::Up) {
-                    current.saturating_sub(1)
-                } else {
-                    (current + 1).min(d.workspaces.len() - 1)
+                let steps = match input {
+                    Input::Up => -1,
+                    Input::Down => 1,
+                    Input::WorkspaceSteps(steps) => steps,
+                    _ => unreachable!(),
                 };
+                let next = (current as i64)
+                    .saturating_add(steps)
+                    .clamp(0, d.workspaces.len() as i64 - 1) as usize;
                 self.select_workspace(next);
             }
-            Input::Left | Input::Right | Input::Cycle(_) => {
+            Input::Left | Input::Right | Input::Cycle(_) | Input::WindowSteps(_) => {
                 let d = &self.displays[self.active];
                 let ws = d.workspaces.iter().find(|ws| ws.index == self.selection.workspace)?;
-                if ws.windows.is_empty() {
+                let windows: Vec<_> = ws
+                    .windows
+                    .iter()
+                    .filter_map(|window| {
+                        d.windows.iter().position(|scene| scene.data.id == window.id)
+                    })
+                    .collect();
+                if windows.is_empty() {
                     return None;
                 }
-                let current = ws.windows.iter().position(|w| Some(w.id) == self.selection.window);
-                let forward = matches!(input, Input::Right | Input::Cycle(true));
-                let next = match current {
-                    Some(i) if forward => (i + 1) % ws.windows.len(),
-                    Some(i) => (i + ws.windows.len() - 1) % ws.windows.len(),
-                    None => 0,
+                let current = windows
+                    .iter()
+                    .position(|&index| Some(d.windows[index].data.id) == self.selection.window);
+                let steps = match input {
+                    Input::Right | Input::Cycle(true) => 1,
+                    Input::WindowSteps(steps) => steps,
+                    _ => -1,
                 };
-                if let Some(i) = d.windows.iter().position(|w| w.data.id == ws.windows[next].id) {
-                    self.select(i);
-                }
+                let count = windows.len() as i64;
+                let next = match current {
+                    Some(index) => (index as i64 + steps % count).rem_euclid(count),
+                    None => (steps - steps.signum()).rem_euclid(count),
+                } as usize;
+                self.select(windows[next]);
             }
             _ => {}
         }
@@ -2365,6 +2896,11 @@ impl OverviewSession {
         {
             let d = &mut self.displays[self.active];
             d.request_camera_frame();
+        }
+        for d in &mut self.displays {
+            if d.motion.as_ref().is_some_and(|motion| !motion.submitted) {
+                d.apply_camera(d.applied.map_or(1., |(_, opacity)| opacity));
+            }
         }
         None
     }
@@ -2417,7 +2953,7 @@ impl OverviewSession {
                     self.displays[drag.display].windows.iter().find(|w| w.data.id == drag.window)
                 && let Some(frame) = owner.captured_frame(w.data.info.sys_id.unwrap().as_u32())
             {
-                canvas.set_frame(&frame);
+                canvas.set_surface_frame(&frame);
             }
             canvas.layer().setMasksToBounds(true);
             canvas.layer().setCornerRadius(10. * zoom);
@@ -2468,13 +3004,15 @@ impl OverviewSession {
     }
 
     pub(crate) fn toggle(&mut self) {
+        let _tx = LayerTransaction::disabled().flush_on_commit();
         if matches!(self.phase, Phase::Exiting { .. }) {
             self.interrupt();
             for d in &mut self.displays {
                 d.animate(d.home, self.duration);
                 d.motion.as_mut().unwrap().curve = MotionCurve::Enter;
+                d.apply_camera(d.applied.map_or(1., |(_, opacity)| opacity));
             }
-            self.phase = Phase::Entering(Instant::now());
+            self.phase = Phase::Entering;
         } else {
             self.activate(true);
         }
@@ -2561,9 +3099,38 @@ impl OverviewSession {
     }
 
     pub(crate) fn pump_previews(&mut self) {
-        let _tx = LayerTransaction::disabled().flush_on_commit();
+        if !self.displays.iter().any(|d| {
+            d.capture_dirty.load(Ordering::Acquire)
+                || d.clock.as_ref().is_some_and(|clock| clock.has_update())
+                || d.motion.as_ref().is_some_and(|m| m.completed.load(Ordering::Acquire))
+        }) {
+            return;
+        }
+        let _tx = LayerTransaction::disabled();
         let now = Instant::now();
         if let Phase::Waiting(start) = self.phase {
+            // Reading retained frames does not pump captures or initialize streams.
+            // Test readiness against this wake's content, not the previous tick.
+            for d in &mut self.displays {
+                if let Some(captures) = &mut d.captures {
+                    // Cold captures must import their completed samples before
+                    // readiness is evaluated. Warm sessions need no pump here.
+                    if !d.windows.iter().any(|w| w.preview.has_frame()) {
+                        if let Err(error) = captures.pump() {
+                            tracing::warn!(?error, "Spatial capture startup failed");
+                        }
+                    }
+                    for w in &mut d.windows {
+                        if let Some(frame) =
+                            captures.captured_frame(w.data.info.sys_id.unwrap().as_u32())
+                            && frame.process_id() == w.data.id.pid
+                            && w.set_frame(&frame)
+                        {
+                            w.shadow.setOpacity(1.);
+                        }
+                    }
+                }
+            }
             let ready = self.displays.iter().all(|d| {
                 d.windows.is_empty()
                     || d.captures.as_ref().is_none_or(|_| {
@@ -2575,11 +3142,16 @@ impl OverviewSession {
                         })
                     })
             });
-            if (ready && self.displays.iter().all(|d| d.background_ready))
-                || now.duration_since(start) > Duration::from_secs(2)
-            {
-                self.phase = Phase::Entering(now);
+            // Wallpaper capture must never delay the opening transition.
+            if ready || now.duration_since(start) > Duration::from_secs(2) {
+                tracing::debug!(
+                    preview_wait_ms = start.elapsed().as_secs_f64() * 1000.,
+                    ready,
+                    "Overview opening submitted"
+                );
+                self.phase = Phase::Entering;
                 for d in &mut self.displays {
+                    d.decoration_duration = self.fade_duration;
                     d.animate(d.home, self.duration);
                     let motion = d.motion.as_mut().unwrap();
                     motion.start = now;
@@ -2589,15 +3161,7 @@ impl OverviewSession {
             }
         }
         let decorations = match self.phase {
-            Phase::Waiting(_) => 0.,
-            Phase::Entering(start) if self.fade_duration > 0. => {
-                (now.duration_since(start).as_secs_f64() / self.fade_duration).min(1.) as f32
-            }
-            Phase::Exiting { start, .. } => {
-                1. - (now.duration_since(start).as_secs_f64()
-                    / self.fade_duration.min(0.12).max(0.001))
-                .min(1.) as f32
-            }
+            Phase::Waiting(_) | Phase::Exiting { target_ready: true, .. } => 0.,
             _ => 1.,
         };
         let drag_frame =
@@ -2633,84 +3197,31 @@ impl OverviewSession {
                 self.move_drag(point);
             }
         }
-        for drag in self.drag.iter_mut().chain(self.pending_drop.iter_mut().map(|(d, _)| d)) {
-            if let Some(canvas) = &mut drag.canvas
-                && let Some(owner) = &self.displays[drag.display].captures
-                && let Some(w) =
-                    self.displays[drag.display].windows.iter().find(|w| w.data.id == drag.window)
-                && let Some(frame) = owner.captured_frame(w.data.info.sys_id.unwrap().as_u32())
-            {
-                canvas.set_frame(&frame);
-            }
-        }
-        for (display, d) in self.displays.iter_mut().enumerate() {
-            if let Some(snapshot) = &d.desktop_snapshot {
-                match snapshot.take_image() {
-                    Ok(Some(image)) => {
-                        image_contents(&d.background, &image);
-                        d.background_ready = true;
-                        d.desktop_snapshot = None;
-                    }
-                    Err(error) => {
-                        tracing::warn!(?error, "Desktop background unavailable");
-                        d.desktop_snapshot = None;
-                    }
-                    _ => {}
-                }
-            }
+        let mut submitted = false;
+        for d in &mut self.displays {
             let tick = d.clock.as_ref().and_then(|clock| clock.latest());
-            if let Some((_, target)) = tick {
-                d.sample(target.max(now));
+            let completed = d.motion.as_ref().is_some_and(|m| m.completed.load(Ordering::Acquire));
+            if completed || tick.is_some() {
+                d.sample(now);
             }
-            if display == self.active
-                && tick.is_some()
-                && let Some(exit) = &self.exit
+            if completed
+                || d.motion.as_ref().is_some_and(|m| !m.submitted)
+                || d.applied.is_none()
+                || tick.is_some() && d.motion.is_none()
             {
-                let sample = tick.map_or(now, |(_, target)| target.max(now));
-                let t = (sample.duration_since(exit.start).as_secs_f64() / exit.duration).min(1.);
-                let t = t * t * (3. - 2. * t);
-                for &(id, from, to) in &exit.geometry {
-                    if let Some(w) = d.windows.iter_mut().find(|w| w.data.id == id) {
-                        let mix = |a: f64, b: f64| a + (b - a) * t;
-                        w.world = rect(
-                            mix(from.origin.x, to.origin.x),
-                            mix(from.origin.y, to.origin.y),
-                            mix(from.size.width, to.size.width),
-                            mix(from.size.height, to.size.height),
-                        );
-                        w.apply_geometry();
-                    }
-                }
-            }
-            if tick.is_some() || d.applied.is_none() {
+                submitted |= d.motion.as_ref().is_some_and(|motion| !motion.submitted);
                 d.apply_camera(decorations);
-            }
-            if !matches!(self.phase, Phase::Exiting { .. }) {
-                d.update_sources(d.selection.window, false);
-            }
-            if let Some(m) = &mut d.captures {
-                if !m.is_visible() && (d.background_ready || d.desktop_snapshot.is_none()) {
-                    let _ = m.show();
-                }
-                if let Err(e) = m.render(now) {
-                    tracing::warn!(?e, "Spatial capture update failed");
-                }
-                for w in &mut d.windows {
-                    if !matches!(self.phase, Phase::Exiting { .. })
-                        && let Some(frame) = m.captured_frame(w.data.info.sys_id.unwrap().as_u32())
-                    {
-                        if w.preview.set_frame(&frame) {
-                            w.shadow.setOpacity(1.);
-                        }
-                    }
+                if matches!(self.phase, Phase::Exiting { .. }) {
+                    d.focus_ring.setHidden(true);
                 }
             }
             if let Some(clock) = &d.clock {
                 clock.set_paused(
-                    d.motion.is_none()
-                        && !matches!(self.phase, Phase::Waiting(_) | Phase::Exiting { .. })
+                    (d.motion.as_ref().is_some_and(|m| m.submitted)
+                        || d.motion.is_none()
+                            && !matches!(self.phase, Phase::Waiting(_) | Phase::Exiting { .. })
+                            && d.camera_input.elapsed() > Duration::from_millis(100))
                         && self.pressed.is_none()
-                        && d.camera_input.elapsed() > Duration::from_millis(100)
                         && !self.drag.as_ref().is_some_and(|drag| {
                             drag.moved && contains(d.bounds, drag.point) && {
                                 let y = d.local(drag.point).y;
@@ -2720,6 +3231,49 @@ impl OverviewSession {
                 );
             }
         }
+        // Commit motion before source policy changes or capture pumping can block.
+        // A new animation must reach the custom CAContext before capture work.
+        // Subsequent display ticks only commit decoration changes normally.
+        drop(if submitted {
+            _tx.flush_on_commit()
+        } else {
+            _tx
+        });
+        let _tx = LayerTransaction::disabled();
+        for d in &mut self.displays {
+            // Existing IOSurfaces keep updating during motion. Stream resizing
+            // and snapshot/live policy changes wait until the camera settles.
+            if !matches!(self.phase, Phase::Waiting(_) | Phase::Exiting { .. })
+                && d.motion.is_none()
+            {
+                d.update_sources(d.selection.window, false);
+            }
+            if !matches!(self.phase, Phase::Exiting { .. })
+                && d.capture_dirty.swap(false, Ordering::AcqRel)
+                && let Some(m) = &mut d.captures
+            {
+                if let Err(e) = m.pump() {
+                    tracing::warn!(?e, "Spatial capture update failed");
+                }
+                for w in &mut d.windows {
+                    if let Some(frame) = m.captured_frame(w.data.info.sys_id.unwrap().as_u32())
+                        && w.set_frame(&frame)
+                    {
+                        w.shadow.setOpacity(1.);
+                    }
+                }
+            }
+        }
+        for drag in self.drag.iter_mut().chain(self.pending_drop.iter_mut().map(|(d, _)| d)) {
+            if let Some(canvas) = &mut drag.canvas
+                && let Some(owner) = &self.displays[drag.display].captures
+                && let Some(w) =
+                    self.displays[drag.display].windows.iter().find(|w| w.data.id == drag.window)
+                && let Some(frame) = owner.captured_frame(w.data.info.sys_id.unwrap().as_u32())
+            {
+                canvas.set_surface_frame(&frame);
+            }
+        }
         if let Some(drag) = &self.drag
             && drag.moved
         {
@@ -2727,24 +3281,113 @@ impl OverviewSession {
                 .setPosition(CGPoint::new(drag.frame.origin.x, drag.frame.origin.y - 30.));
             drag.badge.setHidden(false);
         }
-        if matches!(self.phase, Phase::Entering(_))
-            && self.displays.iter().all(|d| d.motion.is_none())
+        if matches!(self.phase, Phase::Entering) && self.displays.iter().all(|d| d.motion.is_none())
         {
             self.phase = Phase::Overview;
         }
     }
 
     pub(crate) fn handoff_ready(&mut self) -> bool {
-        let Phase::Exiting { window, start, target_ready } = self.phase else {
+        let Phase::Exiting { start, .. } = self.phase else {
             return false;
         };
-        if start.elapsed() > Duration::from_secs(2) {
-            return true;
+        if let Some(reveal) = self.reveal {
+            // Focus/placement can change during the short dissolve (for
+            // example, a late AX acknowledgement). Abort before removing the
+            // cover if the desktop no longer matches the verified destination.
+            if !self.native_handoff_ready() {
+                let _tx = LayerTransaction::disabled().flush_on_commit();
+                for d in &self.displays {
+                    d.root.removeAnimationForKey(&NSString::from_str("reveal"));
+                    d.root.setOpacity(1.);
+                }
+                self.reveal = None;
+            } else {
+                return reveal.elapsed().as_secs_f64() >= REVEAL_MOTION;
+            }
         }
+        // Sample the elapsed-time fallback too: a lost CA completion callback
+        // must not leave a submitted motion blocking handoff indefinitely.
+        for d in &mut self.displays {
+            d.sample(Instant::now());
+        }
+        if self.displays.iter().any(|d| d.motion.is_some()) {
+            return false;
+        }
+        // Preparation precedes AX focus and frame acknowledgements. Reveal only
+        // once native focus and placement agree; failed closes recover below.
+        if self.native_handoff_ready() {
+            // Geometry and key focus are now verified underneath the cover.
+            // A very short render-server dissolve softens stale preview pixels
+            // and native chrome differences without timing native placement.
+            if let Some(exit) = &self.exit {
+                tracing::debug!(
+                    reveal_delay_ms =
+                        (exit.start.elapsed().as_secs_f64() - exit.duration).max(0.) * 1000.,
+                    "Overview native handoff ready"
+                );
+            }
+            let _tx = LayerTransaction::disabled().flush_on_commit();
+            for d in &self.displays {
+                fade(&d.root, 0.);
+                // Use the existing display clock only for this short verified
+                // reveal tail. Automatic camera motion remains clock-paused.
+                if let Some(clock) = &d.clock {
+                    clock.set_paused(false);
+                }
+            }
+            self.reveal = Some(Instant::now());
+            return false;
+        }
+        // A failed/rejected geometry reply must not trap input forever, and a
+        // timeout alone cannot justify revealing parked windows. Cancel the
+        // close and refresh from the reactor so another selection can succeed.
+        if start.elapsed().as_secs_f64() >= HANDOFF_RECOVERY {
+            tracing::warn!("Overview handoff did not converge; restoring interactive overview");
+            self.interrupt();
+            let _tx = LayerTransaction::disabled().flush_on_commit();
+            for d in &mut self.displays {
+                d.animate(d.home, self.duration);
+                d.apply_camera(1.);
+            }
+        }
+        false
+    }
+
+    fn native_handoff_ready(&self) -> bool {
+        let Phase::Exiting { window, target_ready, .. } = self.phase else {
+            return false;
+        };
         if !target_ready || self.displays.iter().any(|d| d.motion.is_some()) {
             return false;
         }
         let d = &self.displays[self.active];
+        let ids: Vec<_> = d
+            .windows
+            .iter()
+            .filter(|w| {
+                Some(w.data.id) == window
+                    || self.exit.as_ref().is_some_and(|exit| {
+                        exit.outgoing.contains(&w.data.id)
+                            || exit.target.frames.iter().any(|(id, _)| *id == w.data.id)
+                    })
+            })
+            .filter_map(|w| w.data.info.sys_id)
+            .collect();
+        let native: std::collections::HashMap<_, _> = if ids.is_empty() {
+            Default::default()
+        } else {
+            crate::sys::window_server::get_windows(&ids)
+                .into_iter()
+                .map(|info| (info.id, info))
+                .collect()
+        };
+        let mut ordered = std::collections::HashMap::new();
+        let mut is_ordered = |id| {
+            *ordered
+                .entry(id)
+                .or_insert_with(|| crate::sys::window_server::window_is_ordered_in(id))
+        };
         if let Some(exit) = &self.exit {
             if exit.start.elapsed().as_secs_f64() < exit.duration {
                 return false;
@@ -2756,7 +3399,13 @@ impl OverviewSession {
                     .workspaces
                     .iter()
                     .find(|ws| ws.workspace_id == exit.target.workspace)
-                    .is_some_and(|ws| intersects(frame, ws.display_frame));
+                    .is_some_and(|ws| {
+                        !crate::model::hidden_window_placement::HiddenWindowPlacement::is_hidden(
+                            ws.display_frame,
+                            frame,
+                            &[],
+                        )
+                    });
                 if !visible {
                     continue;
                 }
@@ -2766,13 +3415,13 @@ impl OverviewSession {
                 let Some(sys_id) = w.data.info.sys_id else {
                     return false;
                 };
-                let Some(native) = crate::sys::window_server::get_window(sys_id) else {
+                let Some(native) = native.get(&sys_id) else {
                     continue;
                 };
                 if native.pid != id.pid {
                     continue;
                 }
-                if !crate::sys::window_server::window_is_ordered_in(sys_id)
+                if !is_ordered(sys_id)
                     || (native.frame.origin.x - frame.origin.x).abs() > 1.
                     || (native.frame.origin.y - frame.origin.y).abs() > 1.
                     || (native.frame.size.width - frame.size.width).abs() > 1.
@@ -2787,8 +3436,8 @@ impl OverviewSession {
                     .iter()
                     .find(|w| w.data.id == id)
                     .and_then(|w| w.data.info.sys_id)
-                    .filter(|&id| crate::sys::window_server::window_is_ordered_in(id))
-                    .and_then(crate::sys::window_server::get_window);
+                    .and_then(|id| native.get(&id))
+                    .filter(|info| is_ordered(info.id));
                 if let Some(native) = native.filter(|w| w.pid == id.pid) {
                     let width = native.frame.max().x.min(d.bounds.max().x)
                         - native.frame.min().x.max(d.bounds.min().x);
@@ -2807,19 +3456,25 @@ impl OverviewSession {
             let Some(sys_id) = w.data.info.sys_id else {
                 return false;
             };
-            let Some(native) = crate::sys::window_server::get_window(sys_id) else {
+            let Some(native) = native.get(&sys_id) else {
                 return false;
             };
-            if native.pid != id.pid || !crate::sys::window_server::window_is_ordered_in(sys_id) {
+            if native.pid != id.pid || !is_ordered(sys_id) {
                 return false;
             }
             let Some(ws) = d.workspaces.iter().find(|ws| ws.workspace_id == w.workspace) else {
-                return true;
+                return false;
             };
+            // Ordered-in geometry does not prove this app is in front. Wait
+            // for native key focus too; never expose the previously focused app
+            // while an asynchronous AX raise is still in flight.
+            if crate::sys::window_server::key_focused_window(ws.space) != Some(id) {
+                return false;
+            }
             if ws.display_uuid.as_deref() != Some(&d.info.display_uuid) {
                 return intersects(native.frame, ws.display_frame);
             }
-            let preview = d.camera.frame(w.world);
+            let preview = d.camera.frame(w.shadow.frame());
             let tolerance = 1.;
             (preview.origin.x + d.bounds.origin.x - native.frame.origin.x).abs() <= tolerance
                 && (preview.origin.y + d.bounds.origin.y - native.frame.origin.y).abs() <= tolerance
@@ -2833,6 +3488,27 @@ impl OverviewSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cancelled_compositor_animation_wakes_paused_presenter_once() {
+        let completed = Arc::new(AtomicBool::new(false));
+        let (wake, mut events) = crate::actor::channel();
+        let delegate = CameraCompletion::alloc().set_ivars((completed.clone(), Some(wake)));
+        let delegate: Retained<CameraCompletion> =
+            unsafe { objc2::msg_send![super(delegate), init] };
+        let animation = CAAnimation::animation();
+        for finished in [false, true, false] {
+            let _: () = unsafe {
+                objc2::msg_send![&*delegate, animationDidStop: &*animation, finished: finished]
+            };
+        }
+        assert!(completed.load(Ordering::Acquire));
+        assert!(matches!(
+            events.try_recv().unwrap().1,
+            crate::actor::mission_control::Event::PumpPreviews
+        ));
+        assert!(events.try_recv().is_err());
+    }
+
     #[test]
     fn zoom_keeps_pointer_world_position_and_picking_consistent() {
         let mut c = Camera {
@@ -2857,10 +3533,17 @@ mod tests {
             to: c,
             start: Instant::now(),
             duration: 0.3,
-            curve: MotionCurve::Settle,
+            curve: MotionCurve::Enter,
+            submitted: false,
+            completed: Arc::new(AtomicBool::new(false)),
         };
-        for ms in [25, 125, 250] {
-            let camera = motion.sample(motion.start + Duration::from_millis(ms)).0;
+        // The compositor transform must preserve the same zoom pivot at both cadences.
+        for frame in 1..36 {
+            let camera =
+                motion.sample(motion.start + Duration::from_secs_f64(frame as f64 / 120.)).0;
+            let transform = camera.transform();
+            assert!((300. * transform.m11 + transform.m41 - 200.).abs() < 1e-9);
+            assert!((250. * transform.m22 + transform.m42 - 100.).abs() < 1e-9);
             let point = camera.project(CGPoint::new(300., 250.));
             assert!(
                 (point.x - 200.).abs() < 1e-9 && (point.y - 100.).abs() < 1e-9,
@@ -2896,6 +3579,8 @@ mod tests {
             start,
             duration: 0.3,
             curve: MotionCurve::Enter,
+            submitted: false,
+            completed: Arc::new(AtomicBool::new(false)),
         };
         let quarter = first.sample(start + Duration::from_millis(75)).0;
         let progress = (quarter.zoom - first.from.zoom) / (first.to.zoom - first.from.zoom);
@@ -2911,6 +3596,8 @@ mod tests {
             start: start + Duration::from_millis(120),
             duration: 0.3,
             curve: MotionCurve::Smooth,
+            submitted: false,
+            completed: Arc::new(AtomicBool::new(false)),
         };
         assert_eq!(reverse.sample(reverse.start).0, middle);
         let early = reverse.sample(reverse.start + Duration::from_millis(75)).0;
@@ -2921,5 +3608,26 @@ mod tests {
         let (end, done) = reverse.sample(reverse.start + Duration::from_millis(300));
         assert!(done);
         assert_eq!(end, first.from);
+
+        // Retargets retain forward speed while landing monotonically, including
+        // the maximum admitted slope. This protects against a second ease-in
+        // pause and against a velocity-preserving curve overshooting its target.
+        for slope in [0., 0.5, 1.5, 3.] {
+            let retarget = Motion {
+                curve: MotionCurve::Retarget(slope),
+                completed: reverse.completed.clone(),
+                ..reverse
+            };
+            let mut previous = 0.;
+            for step in 0..=300 {
+                let camera = retarget.sample(retarget.start + Duration::from_millis(step)).0;
+                let progress = (camera.zoom - middle.zoom) / (first.from.zoom - middle.zoom);
+                assert!(progress >= previous - 1e-9 && progress <= 1. + 1e-9);
+                previous = progress;
+            }
+            let early = retarget.sample(retarget.start + Duration::from_micros(30)).0;
+            let speed = (early.zoom - middle.zoom) / (first.from.zoom - middle.zoom) / 0.0001;
+            assert!((speed - slope).abs() < 0.001);
+        }
     }
 }

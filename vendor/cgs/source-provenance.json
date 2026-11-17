@@ -1,8 +1,8 @@
 {
   "crate": "cgs",
-  "version": "0.4.0",
-  "archive_url": "https://crates.io/api/v1/crates/cgs/0.4.0/download",
-  "archive_sha256": "976866db4f3d8220b3664406c0ab274e93d294c242bcf94bbcae6a126cd1921f",
+  "version": "0.5.2",
+  "archive_url": "https://crates.io/api/v1/crates/cgs/0.5.2/download",
+  "archive_sha256": "6f6d56081e7292f8abacfe3871475ae1d0d7a63fdceafa74105597dbe2a826fa",
   "purpose": "Rift 简体中文界面内建控件文案",
   "changes": "仅本地化用户可见文案，保留原许可与行为"
 }

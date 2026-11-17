@@ -3,7 +3,6 @@ use objc2::rc::Retained;
 use objc2_app_kit::NSView;
 
 use crate::layout::{Divider, ScrollView, VStack};
-use crate::style::Color;
 use crate::text::{SecondaryLabel, Title};
 use crate::view::{Metrics, NativeView, View};
 use crate::{Insets, Ui};
@@ -58,14 +57,9 @@ impl SettingsPage {
         scroll.ns_scroll_view().setDrawsBackground(true);
         // Give the detail pane a subtle tint so its boundary with the white
         // navigation sidebar remains visible even without a prominent divider.
-        let background = Color::settings_background();
-        scroll.ns_scroll_view().setBackgroundColor(&background);
+        scroll.ns_scroll_view().setDrawsBackground(false);
         scroll.fit_width();
-        let root = View::new(ui);
-        root.ns_view().setWantsLayer(true);
-        if let Some(layer) = root.ns_view().layer() {
-            layer.setBackgroundColor(Some(&background.CGColor()));
-        }
+        let root = View::settings_color(ui, 0);
         root.ns_view().addSubview(scroll.ns_view());
         crate::view::prepare(scroll.ns_view());
         let parent = root.ns_view();
@@ -193,4 +187,28 @@ pub struct EditorPage {
 }
 impl NativeView for EditorPage {
     fn ns_view(&self) -> &NSView { &self.native }
+}
+
+/// A transparent fixed header over edge-to-edge scrolling content.
+/// The scroll view measures this header and reserves its height at the origin.
+pub struct ScrollHeader {
+    root: View,
+}
+impl ScrollHeader {
+    pub fn new(ui: &Ui, header: impl NativeView, content: impl NativeView) -> Self {
+        crate::layout::set_scroll_header(content.ns_view(), header.ns_view());
+        let root = View::settings_color(ui, 0).content(content, crate::layout::uniform_insets(0.0));
+        root.ns_view().addSubview(header.ns_view());
+        crate::view::prepare(header.ns_view());
+        header.ns_view().topAnchor()
+            .constraintEqualToAnchor(&root.ns_view().safeAreaLayoutGuide().topAnchor()).setActive(true);
+        header.ns_view().leadingAnchor().constraintEqualToAnchor(&root.ns_view().leadingAnchor()).setActive(true);
+        header.ns_view().trailingAnchor().constraintEqualToAnchor(&root.ns_view().trailingAnchor()).setActive(true);
+        // Retain Rust callbacks as well as the native view.
+        root.retain_child(header);
+        Self { root }
+    }
+}
+impl NativeView for ScrollHeader {
+    fn ns_view(&self) -> &NSView { self.root.ns_view() }
 }

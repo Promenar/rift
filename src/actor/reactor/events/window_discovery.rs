@@ -18,8 +18,8 @@ fn sync_existing_window_state(
     transactions: &TransactionManager,
     wid: WindowId,
     mut info: WindowInfo,
-    active_space: Option<SpaceId>,
 ) -> anyhow::Result<crate::actor::reactor::events::EventOutcome> {
+    let ax_returned = state.windows.validate_ax_identity(wid);
     let was_minimized = state.windows.window(wid).is_some_and(|window| window.info.is_minimized);
     let was_manageable = state.windows.window(wid).is_some_and(WindowState::is_admitted);
 
@@ -27,6 +27,7 @@ fn sync_existing_window_state(
     let rift_owns_geometry =
         info.sys_id.is_some_and(|wsid| transactions.get_target_frame(wsid).is_some());
     let needs_arrange;
+    let claimed = state.windows.is_claimed(wid);
     if let Some(existing) = state.windows.window_mut(wid) {
         let valid_frame = info.frame.size.width != 0.0 || info.frame.size.height != 0.0;
         let geometry_changed =
@@ -34,7 +35,8 @@ fn sync_existing_window_state(
         let constraints_changed = existing.info.is_resizable != info.is_resizable
             || existing.info.min_size != info.min_size
             || existing.info.max_size != info.max_size;
-        needs_arrange = geometry_changed || constraints_changed;
+        // A claimed window's owner has geometry authority.
+        needs_arrange = (geometry_changed || constraints_changed) && !claimed;
         if !rift_owns_geometry && valid_frame {
             existing.frame_monotonic = info.frame;
         }
@@ -48,26 +50,35 @@ fn sync_existing_window_state(
 
     let mut admission_changed = false;
     let mut outcome = match (was_minimized, is_minimized) {
-        (_, true) => window::handle_window_minimized(state, wid)?,
-        (true, false) => {
-            window::handle_window_deminiaturized(state, window::WindowDeminiaturizedPayload {
-                window: wid,
-                active_space,
-            })?
+        (_, true) | (true, false) => {
+            window::handle_window_visibility_changed(state, wid, !is_minimized)?
         }
         _ => {
             let is_admitted = utils::refresh_heuristic(state, wid)
                 .is_some_and(|transition| transition.is_admitted);
             admission_changed = was_manageable != is_admitted;
             if was_manageable && !is_admitted {
+                crate::actor::reactor::events::EventOutcome::default().with_layout_event(
+                    if state.windows.is_temporarily_unavailable(wid) {
+                        LayoutEvent::WindowSuspended(wid)
+                    } else {
+                        LayoutEvent::WindowRemoved(wid)
+                    },
+                )
+            } else if is_admitted && !claimed && (admission_changed || ax_returned) {
+                // A restored window can become admissible only after the fresh AX
+                // snapshot arrives, while its owning workspace is still inactive.
                 crate::actor::reactor::events::EventOutcome::default()
-                    .with_layout_event(LayoutEvent::WindowRemoved(wid))
+                    .with_created_window_finalization(wid)
             } else {
                 crate::actor::reactor::events::EventOutcome::default()
             }
         }
     };
-    if needs_arrange && was_minimized == is_minimized && !admission_changed {
+    if (needs_arrange || admission_changed || ax_returned)
+        && state.windows.is_admitted(wid)
+        && was_minimized == is_minimized
+    {
         outcome.absorb(crate::actor::reactor::events::EventOutcome::layout_changed(
             false,
         ));
@@ -109,7 +120,6 @@ fn should_emit_window_for_space(
 pub(crate) struct ObservedWindow {
     pub(crate) wid: WindowId,
     pub(crate) info: WindowInfo,
-    pub(crate) active_space: Option<SpaceId>,
 }
 
 pub(crate) fn process_window_list(
@@ -125,15 +135,14 @@ pub(crate) fn process_window_list(
     let mut outcome = crate::actor::reactor::events::EventOutcome::default();
 
     for window in observed {
-        let ObservedWindow { wid, info, active_space } = window;
+        let ObservedWindow { wid, info } = window;
         if let Some(previous) = state.windows.reconcile_ax_identity(wid, info.sys_id) {
             layout.layout_engine.transfer_persistent_window_identity(previous, wid);
             outcome =
                 outcome.with_layout_event(LayoutEvent::WindowRemovedPreserveFloating(previous));
         }
         if state.windows.contains_window(wid) {
-            if let Ok(existing_outcome) =
-                sync_existing_window_state(state, transactions, wid, info, active_space)
+            if let Ok(existing_outcome) = sync_existing_window_state(state, transactions, wid, info)
             {
                 outcome.absorb(existing_outcome);
             }
@@ -186,6 +195,7 @@ pub(crate) fn assign_window<'a>(
                 window_title: Some(&title),
                 ax_role: role.as_deref(),
                 ax_subrole: subrole.as_deref(),
+                window_tags: None,
             },
             reapply,
         )
@@ -235,6 +245,38 @@ pub(crate) fn emit_layout_events(
         return outcome;
     }
 
+    // Minimized windows still match saved membership. Match before the app's
+    // discovery-completed event prunes truly missing identities; admission and
+    // geometry remain suspended until a positive return.
+    let minimized: Vec<_> = state
+        .windows
+        .window_ids_for_pid(pid)
+        .filter(|wid| {
+            !state.windows.is_claimed(*wid)
+                && state.windows.window(*wid).is_some_and(|w| w.info.is_minimized)
+        })
+        .collect();
+    for wid in minimized {
+        let Some(space) =
+            window_spaces.get(&wid).and_then(|(native, discovery)| native.or(*discovery))
+        else {
+            continue;
+        };
+        let (_, removal) = assign_window(
+            state,
+            layout,
+            wid,
+            crate::model::virtual_workspace::WorkspaceContext { space, visible: &active_spaces },
+            app_info.as_ref(),
+            false,
+        );
+        if let Some(event) = removal {
+            outcome = outcome.with_layout_event(event);
+        } else if state.windows.workspace_for_window(wid).is_some() {
+            outcome = outcome.with_layout_event(LayoutEvent::WindowSuspended(wid));
+        }
+    }
+
     let mut app_windows: BTreeMap<SpaceId, Vec<WindowId>> = BTreeMap::new();
     let mut included: HashSet<WindowId> = HashSet::default();
     let visible: Vec<_> = state
@@ -242,7 +284,7 @@ pub(crate) fn emit_layout_events(
         .iter_visible_window_server_ids()
         .filter_map(|wsid| state.windows.tracked_window_id(wsid))
         .filter(|wid| wid.pid == pid)
-        .filter(|wid| state.windows.window(*wid).is_some_and(WindowState::can_reconcile_admission))
+        .filter(|wid| state.windows.can_reconcile_admission(*wid))
         .collect();
     let has_visible_window_server_windows = !visible.is_empty();
 
@@ -253,9 +295,7 @@ pub(crate) fn emit_layout_events(
             .filter(|wid| wid.pid == pid)
             .map(|wid| (wid, false)),
     ) {
-        if included.contains(&wid)
-            || !state.windows.window(wid).is_some_and(WindowState::can_reconcile_admission)
-        {
+        if included.contains(&wid) || !state.windows.can_reconcile_admission(wid) {
             continue;
         }
         // AX fallback must not resurrect an omitted window via geometry when native
@@ -298,7 +338,7 @@ pub(crate) fn emit_layout_events(
             let Some(effects) = effects else {
                 continue;
             };
-            let Some(window) = state.windows.window(wid).filter(|window| window.is_admitted())
+            let Some(window) = state.windows.window(wid).filter(|_| state.windows.is_admitted(wid))
             else {
                 continue;
             };

@@ -9,6 +9,21 @@ use crate::{
     WindowId, WorkspaceSelector,
 };
 
+/// Editable argument types shared by command discovery and native settings.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CommandArgument {
+    Direction(Direction),
+    Orientation(ResizeOrientation),
+    Workspace(WorkspaceSelector),
+    WorkspaceIndex(usize),
+    Display(DisplaySelector),
+    Layout(LayoutMode),
+    Keymap(String),
+    Number(f64),
+    Integer(i32),
+    Backwards(bool),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FloatingWindowSizePreset {
@@ -31,112 +46,205 @@ pub struct ToggleWindowFloatingOptions {
     pub size: Option<FloatingWindowSize>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, rift_config_derive::CommandCatalog)]
 #[serde(rename_all = "snake_case")]
+#[command(
+    group = 0,
+    defaults(
+        Direction = "Direction::Left",
+        ResizeOrientation = "ResizeOrientation::Smart",
+        LayoutMode = "LayoutMode::Traditional"
+    )
+)]
 pub enum LayoutCommand {
+    #[command(group = 1, label = "聚焦下一个窗口", order = 13)]
     NextWindow,
+    #[command(group = 1, label = "聚焦上一个窗口", order = 14)]
     PrevWindow,
+    #[command(group = 1, label = "聚焦窗口", order = 12)]
     MoveFocus(#[serde(rename = "direction")] Direction),
+    #[command(group = 1, label = "聚焦父级", order = 15)]
     Ascend,
+    #[command(group = 1, label = "聚焦子级", order = 16)]
     Descend,
+    #[command(label = "移动窗口", order = 0)]
     MoveNode(Direction),
+    #[command(label = "合并窗口", order = 1)]
     JoinWindow(Direction),
+    #[command(label = "纳入或移出窗口", order = 2)]
     ConsumeOrExpelWindow(Direction),
+    #[command(label = "切换堆叠", group = 4, order = 17)]
     ToggleStack,
+    #[command(label = "切换方向", group = 4, order = 18)]
     ToggleOrientation,
+    #[command(label = "平衡布局", group = 4, order = 19)]
     Balance,
+    #[command(label = "取消合并窗口", group = 4, order = 20)]
     UnjoinWindows,
+    #[command(label = "切换焦点窗口浮动", order = 4)]
     ToggleFocusFloating,
+    #[command(label = "切换浮动", order = 3)]
     ToggleWindowFloating,
+    #[command(skip, alias = "ToggleWindowFloating")]
     ToggleWindowFloatingWithOptions(ToggleWindowFloatingOptions),
+    #[command(label = "切换全屏", order = 5)]
     ToggleFullscreen,
+    #[command(label = "间隙内全屏", order = 6)]
     ToggleFullscreenWithinGaps,
+    #[command(label = "增大窗口", order = 7)]
     ResizeWindowGrow(ResizeOrientation),
+    #[command(label = "缩小窗口", order = 8)]
     ResizeWindowShrink(ResizeOrientation),
-    ResizeWindowBy {
-        amount: f64,
-    },
-    ScrollStrip {
-        delta: f64,
-    },
+    #[command(label = "调整窗口尺寸", order = 9, sample = "Self::ResizeWindowBy { amount: 10.0 }")]
+    ResizeWindowBy { amount: f64 },
+    #[command(
+        group = 4,
+        label = "滚动条带",
+        order = 22,
+        sample = "Self::ScrollStrip { delta: 100.0 }"
+    )]
+    ScrollStrip { delta: f64 },
+    #[command(label = "吸附条带", group = 4, order = 23)]
     SnapStrip,
+    #[command(group = 4, label = "循环预设宽度", order = 24)]
     SwitchPresetColumnWidth {
         #[serde(default)]
         backwards: bool,
     },
+    #[command(label = "居中选中", order = 10)]
     CenterSelection,
+    #[command(skip)]
     NextWorkspace(Option<bool>),
+    #[command(skip)]
     PrevWorkspace(Option<bool>),
+    #[command(skip)]
     SwitchToWorkspace(usize),
+    #[command(skip)]
     MoveWindowToWorkspace {
         workspace: WorkspaceSelector,
         follow: bool,
         window_id: Option<u32>,
     },
+    #[command(group = 4, label = "设置布局为", order = 21)]
     SetWorkspaceLayout {
         workspace: Option<usize>,
         mode: LayoutMode,
     },
+    #[command(skip)]
     CreateWorkspace,
+    #[command(skip)]
     SwitchToLastWorkspace,
+    #[command(
+        label = "交换指定窗口",
+        order = 51,
+        sample = "Self::SwapWindows(WindowId { pid: 0, idx: 1 }, WindowId { pid: 0, idx: 2 })"
+    )]
     SwapWindows(WindowId, WindowId),
-    /// Move `window`'s tab to where `target`'s tab sits in their shared stack,
-    /// shifting the tabs between them toward the vacated slot.
-    MoveStackTab {
-        window: WindowId,
-        target: WindowId,
-    },
+    /// 将 `window` 的标签移动到 `target` 标签在共享堆叠中的位置，
+    /// 并把两者之间的标签向腾出的空位移动。
+    #[command(
+        label = "移动堆叠标签",
+        order = 52,
+        sample = "Self::MoveStackTab { window: WindowId { pid: 0, idx: 1 }, target: WindowId { pid: 0, idx: 2 } }"
+    )]
+    MoveStackTab { window: WindowId, target: WindowId },
+    #[command(
+        group = 4,
+        label = "调整主区比例",
+        order = 25,
+        sample = "Self::AdjustMasterRatio(0.05)"
+    )]
     AdjustMasterRatio(f64),
-    AdjustMasterCount {
-        delta: i32,
-    },
+    #[command(
+        group = 4,
+        label = "调整主区数量",
+        order = 26,
+        sample = "Self::AdjustMasterCount { delta: 1 }"
+    )]
+    AdjustMasterCount { delta: i32 },
+    #[command(label = "提升为主窗口", group = 4, order = 27)]
     PromoteToMaster,
+    #[command(group = 4, label = "交换主区与堆栈", order = 28)]
     SwapMasterStack,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, rift_config_derive::CommandCatalog,
+)]
 #[serde(rename_all = "snake_case")]
+#[command(defaults(
+    Direction = "Direction::Left",
+    DisplaySelector = "DisplaySelector::Direction(Direction::Left)"
+))]
 pub enum ReactorCommand {
+    #[command(label = "打开设置", order = 47)]
     OpenSettings,
+    #[command(skip)]
     BindingMode(String),
+    #[command(label = "打印布局树", order = 48)]
     Debug,
+    #[command(label = "序列化状态", order = 49)]
     Serialize,
-    SaveLayout {
-        path: PathBuf,
-    },
+    #[command(
+        group = 4,
+        label = "保存布局到文件",
+        order = 54,
+        sample = "Self::SaveLayout { path: std::path::PathBuf::new() }"
+    )]
+    SaveLayout { path: PathBuf },
+    #[command(label = "保存并退出", order = 50)]
     SaveAndExit,
+    #[command(
+        group = 4,
+        label = "从文件恢复布局",
+        order = 55,
+        sample = "Self::RestoreLayout { path: std::path::PathBuf::new(), scope: RestoreScope::Workspace, source: RestoreSource::SavedActiveSpace }"
+    )]
     RestoreLayout {
         path: PathBuf,
         scope: RestoreScope,
         #[serde(default)]
         source: RestoreSource,
     },
+    #[command(label = "切换空间", group = 2, order = 39)]
     SwitchSpace(Direction),
+    #[command(skip)]
     ToggleSpaceActivated,
+    #[command(
+        group = 1,
+        label = "聚焦指定窗口",
+        order = 53,
+        sample = "Self::FocusWindow { window_id: WindowId { pid: 0, idx: 1 }, window_server_id: None }"
+    )]
     FocusWindow {
         window_id: WindowId,
         window_server_id: Option<u32>,
     },
+    #[command(skip)]
     ShowMissionControlAll,
+    #[command(skip)]
     ShowMissionControlCurrent,
+    #[command(skip)]
     DismissMissionControl,
+    #[command(group = 3, label = "移动指针到显示器", order = 38)]
     MoveMouseToDisplay(DisplaySelector),
+    #[command(label = "聚焦显示器", group = 3, order = 35)]
     FocusDisplay(DisplaySelector),
-    CloseWindow {
-        window_server_id: Option<u32>,
-    },
+    #[command(skip)]
+    CloseWindow { window_server_id: Option<u32> },
+    #[command(label = "移动窗口到显示器", group = 3, order = 36)]
     MoveWindowToDisplay {
         selector: DisplaySelector,
         window_id: Option<u32>,
     },
-    /// Move the active workspace to another display.
+    /// 将当前活动工作区移动到另一台显示器。
     ///
-    /// Rift workspaces are display-local, so windows move into the destination
-    /// display's workspace at the same ordinal and that workspace becomes active.
+    /// Rift 的工作区是显示器本地的，因此窗口会移动到目标显示器上序号相同的
+    /// 工作区，且该工作区变为活动状态。
+    #[command(label = "移动工作区到显示器", group = 3, order = 37)]
     MoveWorkspaceToDisplay {
         selector: DisplaySelector,
-        /// Continue from the opposite edge when a directional selector has no
-        /// display further in that direction.
+        /// 当方向选择器在该方向上没有更远的显示器时，从相反边缘继续。
         #[serde(default)]
         wrap_around: bool,
     },

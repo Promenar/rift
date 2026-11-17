@@ -1,4 +1,3 @@
-// 简体中文界面修改：本文件的显示文案或相关界面测试已本地化。
 //! Interface preferences. Previews are event-driven native views, never windows.
 use cgs::app::Application;
 use cgs::controls::{Button, NumberSlider, PathField};
@@ -6,6 +5,7 @@ use cgs::drawing::VisualEffect;
 use cgs::layout::{HStack, Spacer, VStack};
 use cgs::settings::{Section, SettingsPage, ValidationMessage};
 use cgs::style::Font;
+use cgs::tabs::TabSelector;
 use cgs::text::{Caption, Label};
 use cgs::view::NativeView;
 use cgs::{Insets, Ui};
@@ -121,31 +121,73 @@ pub(super) fn menu_bar(ui: Ui, model: &Rc<Model>) -> Page {
         settings.enabled && settings.mode == MenuBarDisplayMode::All
     });
     let workspaces = Section::new(&ui, "工作区").row(display).row(mode).row(empty);
+    let message = Rc::new(ValidationMessage::new(&ui));
+    let weak_model = f.model.clone();
+    let error = Rc::downgrade(&message);
+    let style = Rc::new(
+        TabSelector::choices(&ui, &[("布局", None), ("序号", None), ("名称", None)]).on_change(
+            move |index| {
+                Model::submit(
+                    &weak_model,
+                    Box::new(move |s| {
+                        let settings = &mut s.settings.ui.menu_bar;
+                        match index {
+                            0 => settings.display_style = WorkspaceDisplayStyle::Layout,
+                            1 | 2 => {
+                                settings.display_style = WorkspaceDisplayStyle::Label;
+                                settings.active_label = if index == 1 {
+                                    ActiveWorkspaceLabel::Index
+                                } else {
+                                    ActiveWorkspaceLabel::Name
+                                };
+                            }
+                            _ => {}
+                        }
+                        Ok(())
+                    }),
+                    error.clone(),
+                );
+            },
+        ),
+    );
+    let examples = MenuBarPreview::new(&ui);
+    for (index, (display, label)) in [
+        (WorkspaceDisplayStyle::Layout, ActiveWorkspaceLabel::Index),
+        (WorkspaceDisplayStyle::Label, ActiveWorkspaceLabel::Index),
+        (WorkspaceDisplayStyle::Label, ActiveWorkspaceLabel::Name),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let image = examples.choice_image(display, label);
+        style.ns_segmented_control().setImage_forSegment(Some(&image), index as isize);
+    }
+    style.accessibility_label("工作区显示方式：布局、索引或名称");
+    for (index, tip) in ["布局", "序号", "名称"].iter().enumerate() {
+        style.ns_segmented_control().setToolTip_forSegment(
+            Some(&objc2_foundation::NSString::from_str(tip)),
+            index as isize,
+        );
+    }
+    f.sync_when(
+        &style,
+        |s| s.settings.ui.menu_bar.clone(),
+        |style, s| {
+            let settings = &s.settings.ui.menu_bar;
+            let index = if settings.display_style == WorkspaceDisplayStyle::Layout {
+                0
+            } else if settings.active_label == ActiveWorkspaceLabel::Index {
+                1
+            } else {
+                2
+            };
+            style.set_selected(index);
+            style.ns_segmented_control().setEnabled(settings.enabled);
+        },
+    );
     let style = f
-        .popup(
-            "工作区显示方式",
-            vec![
-                ("布局", None),
-                ("序号", Some(ActiveWorkspaceLabel::Index)),
-                ("名称", Some(ActiveWorkspaceLabel::Name)),
-            ],
-            |s| {
-                let settings = &s.settings.ui.menu_bar;
-                (settings.display_style == WorkspaceDisplayStyle::Label)
-                    .then_some(settings.active_label)
-            },
-            |s, label| {
-                let settings = &mut s.settings.ui.menu_bar;
-                if let Some(label) = label {
-                    settings.display_style = WorkspaceDisplayStyle::Label;
-                    settings.active_label = label;
-                } else {
-                    settings.display_style = WorkspaceDisplayStyle::Layout;
-                }
-            },
-        )
+        .row("工作区显示方式", style, message)
         .description("“布局”显示窗口排列；未命名工作区使用序号。");
-    f.enabled(&style, |s| s.settings.ui.menu_bar.enabled);
     let fullscreen = f
         .field(
             "show_fullscreen_indicator",

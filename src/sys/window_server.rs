@@ -414,6 +414,14 @@ pub fn mission_control_dock_overlay_visible() -> bool {
         })
 }
 
+/// Read tags without treating a failed query as an empty mask.
+pub fn window_tags(id: WindowServerId) -> Option<u64> {
+    let query = WindowIterator::new(&[id])?;
+    (query.count() == 1)
+        .then(|| query.advance().map(|window| window.tags()))
+        .flatten()
+}
+
 pub fn window_parent(id: WindowServerId) -> Option<WindowServerId> {
     let query = WindowIterator::new(&[id])?;
     if query.count() == 1 {
@@ -561,19 +569,7 @@ pub fn get_windows(ids: &[WindowServerId]) -> Vec<WindowServerInfo> {
 }
 
 pub fn get_window(id: WindowServerId) -> Option<WindowServerInfo> {
-    #[cfg(test)]
-    {
-        return get_windows(&[id]).into_iter().next();
-    }
-
-    #[cfg(not(test))]
-    {
-        let query = WindowIterator::new(&[id])?;
-        if query.count() != 1 || query.advance().is_none() {
-            return None;
-        }
-        return window_info_from_query(&query);
-    }
+    get_window_with_transient(id).map(|(info, _)| info)
 }
 
 fn get_num(dict: &CFDictionary<CFString, CFType>, key: &'static CFString) -> Option<i64> {
@@ -617,6 +613,43 @@ pub fn focus_desktop_window(_screen: &ScreenInfo) -> bool { false }
 #[cfg_attr(test, allow(dead_code))]
 fn window_is_effectively_invisible(alpha: f32, layer: i32) -> bool {
     layer == 0 && alpha <= EFFECTIVELY_INVISIBLE_WINDOW_ALPHA
+}
+
+/// Appearance-only metadata and transient classification from one native query.
+pub(crate) fn get_window_with_transient(id: WindowServerId) -> Option<(WindowServerInfo, bool)> {
+    #[cfg(test)]
+    {
+        return get_windows(&[id]).into_iter().next().map(|info| (info, false));
+    }
+    #[cfg(not(test))]
+    {
+        let query = WindowIterator::new(&[id])?;
+        if query.count() != 1 || query.advance().is_none() {
+            return None;
+        }
+        Some((
+            window_info_from_query(&query)?,
+            native_window_is_transient(
+                SLSWindowTags::from_bits_retain(query.tags()),
+                query.parent_id(),
+            ),
+        ))
+    }
+}
+
+// Tags describe native behavior, not AX roles. In particular DOCUMENT is a
+// style bit, and an attached NSPopover can carry it too.
+fn native_window_is_transient(tags: SLSWindowTags, parent: u32) -> bool {
+    !tags.contains(SLSWindowTags::IGNORE_FOR_EVENTS)
+        && (tags.contains(SLSWindowTags::MODAL)
+            || (parent != 0
+                && tags.contains(SLSWindowTags::ATTACHED)
+                && !tags.contains(SLSWindowTags::PREVENTS_ACTIVATION))
+            || tags.contains(
+                SLSWindowTags::FLOATING
+                    | SLSWindowTags::HIDE_ON_DEACTIVATE
+                    | SLSWindowTags::IGNORES_CYCLE,
+            ))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -772,6 +805,7 @@ pub fn space_window_list_for_connection(
 }
 
 /// None means the native query failed, not that the Space contains no windows.
+#[cfg_attr(test, allow(unreachable_code))]
 pub fn try_space_window_list_for_connection(
     spaces: &[u64],
     owner: u32,
@@ -794,10 +828,17 @@ pub fn try_space_window_list_for_connection(
         return Some(override_ids);
     }
 
+    // Tests use Space ids such as 1 and 2, which are real Spaces on a desktop:
+    // asking the window server lists the machine's own windows, and synthetic
+    // windows missing from that list are taken as hidden.
     #[cfg(test)]
-    if let Some(override_ids) = TEST_SPACE_WINDOW_LIST_OVERRIDE.with(|ids| ids.borrow().clone()) {
+    {
         let _ = (spaces, owner, include_minimized);
-        return Some(override_ids);
+        return Some(
+            TEST_SPACE_WINDOW_LIST_OVERRIDE
+                .with(|ids| ids.borrow().clone())
+                .unwrap_or_default(),
+        );
     }
 
     let cf_space_array = cf_array_from_u64s(spaces);
@@ -1028,6 +1069,26 @@ pub unsafe fn switch_space(direction: crate::layout_engine::Direction) {
 #[cfg(test)]
 mod tests {
     use super::{SLSWindowTags, WindowServerId, key_window_in_z_order};
+
+    #[test]
+    fn native_transient_tags_match_observed_appkit_windows() {
+        // Captured on this Mac after an AppKit run-loop turn. These are native
+        // iterator masks, not fixtures produced by the classifier.
+        for (bits, parent, expected) in [
+            (0x0000200100482001, 0, false),  // regular and fixed-size NSWindow
+            (0x00002001004c6002, 0, true),   // hides-on-deactivate floating NSPanel
+            (0x00002001400c2481, 42, true),  // transient NSPopover (also DOCUMENT)
+            (0x00002001000ca082, 42, true),  // NSAlert sheet, without MODAL
+            (0x0000200100482003, 0, false),  // ordinary floating document
+            (0x00002001000ca282, 42, false), // input-transparent attached surface
+            (0x0000000080000000, 0, true),   // standalone modal
+        ] {
+            assert_eq!(
+                super::native_window_is_transient(SLSWindowTags::from_bits_retain(bits), parent),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn zero_window_server_id_is_not_a_window_id() {

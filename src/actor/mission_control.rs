@@ -6,7 +6,9 @@ use objc2_foundation::MainThreadMarker;
 
 use crate::actor::{self, reactor};
 use crate::common::config::MissionControlSettings;
-use crate::ui::mission_control::{OverviewAction, OverviewSession, PreviewCache};
+use crate::ui::mission_control::{
+    DesktopBackgrounds, OverviewAction, OverviewSession, PreviewCache,
+};
 
 #[derive(Debug)]
 pub enum Event {
@@ -30,6 +32,10 @@ pub enum Event {
 #[derive(Debug)]
 pub enum Input {
     Dismiss,
+    MoveNode(crate::layout_engine::Direction),
+    ConsumeOrExpel(crate::layout_engine::Direction),
+    SwitchWorkspace(crate::common::config::WorkspaceSelector),
+    MoveToWorkspace(crate::common::config::WorkspaceSelector, bool),
     Left,
     Right,
     Up,
@@ -37,6 +43,8 @@ pub enum Input {
     Activate,
     ZoomStep(i8),
     Cycle(bool),
+    WindowSteps(i64),
+    WorkspaceSteps(i64),
     Click(CGPoint),
     PointerDown(CGPoint),
     PointerDrag(CGPoint),
@@ -51,6 +59,53 @@ pub enum Input {
 }
 
 impl Input {
+    pub(crate) fn from_command(command: &super::wm_controller::WmCommand) -> Option<Self> {
+        use super::wm_controller::{WmCmd, WmCommand};
+        use crate::layout_engine::{Direction, LayoutCommand};
+        match command {
+            WmCommand::ReactorCommand(reactor::Command::Layout(command)) => match command {
+                LayoutCommand::MoveFocus(direction) => Some(match direction {
+                    Direction::Left => Self::Left,
+                    Direction::Right => Self::Right,
+                    Direction::Up => Self::Up,
+                    Direction::Down => Self::Down,
+                }),
+                LayoutCommand::MoveNode(direction) => Some(Self::MoveNode(*direction)),
+                LayoutCommand::ConsumeOrExpelWindow(direction) => {
+                    Some(Self::ConsumeOrExpel(*direction))
+                }
+                LayoutCommand::SwitchToWorkspace(index) => Some(Self::SwitchWorkspace(
+                    crate::common::config::WorkspaceSelector::Index(*index),
+                )),
+                LayoutCommand::MoveWindowToWorkspace {
+                    workspace,
+                    follow,
+                    window_id: None,
+                } => Some(Self::MoveToWorkspace(workspace.clone(), *follow)),
+                _ => None,
+            },
+            WmCommand::Wm(WmCmd::SwitchToWorkspace(workspace)) => {
+                Some(Self::SwitchWorkspace(workspace.clone()))
+            }
+            WmCommand::Wm(WmCmd::MoveWindowToWorkspace(workspace)) => {
+                Some(Self::MoveToWorkspace(workspace.clone(), false))
+            }
+            _ => None,
+        }
+    }
+
+    fn navigation(&self) -> Option<(bool, i64)> {
+        match *self {
+            Self::Left | Self::Cycle(false) => Some((true, -1)),
+            Self::Right | Self::Cycle(true) => Some((true, 1)),
+            Self::WindowSteps(steps) => Some((true, steps)),
+            Self::Up => Some((false, -1)),
+            Self::Down => Some((false, 1)),
+            Self::WorkspaceSteps(steps) => Some((false, steps)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn from_keycode(keycode: u16, flags: CGEventFlags) -> Option<Self> {
         if !flags.intersects(CGEventFlags::MaskControl | CGEventFlags::MaskAlternate) {
             match keycode {
@@ -85,6 +140,23 @@ impl Input {
 fn merge_motion(event: &mut Event, next: Event) -> Result<(), Event> {
     match (event, next) {
         (Event::RefreshCurrentWorkspace, Event::RefreshCurrentWorkspace) => Ok(()),
+        (Event::Input(input), Event::Input(next))
+            if input.navigation().zip(next.navigation()).is_some_and(
+                |((windows, steps), (next_windows, next_steps))| {
+                    windows == next_windows && steps.signum() == next_steps.signum()
+                },
+            ) =>
+        {
+            let (windows, steps) = input.navigation().unwrap();
+            let (_, next_steps) = next.navigation().unwrap();
+            let steps = steps.saturating_add(next_steps);
+            *input = if windows {
+                Input::WindowSteps(steps)
+            } else {
+                Input::WorkspaceSteps(steps)
+            };
+            Ok(())
+        }
         (Event::Input(Input::Move(point)), Event::Input(Input::Move(next)))
         | (Event::Input(Input::PointerDrag(point)), Event::Input(Input::PointerDrag(next)))
         | (Event::Input(Input::Pan(point)), Event::Input(Input::Pan(next))) => {
@@ -148,6 +220,7 @@ pub struct MissionControlActor {
     rx: Receiver,
     tx: Sender,
     cache: Option<PreviewCache>,
+    backgrounds: DesktopBackgrounds,
     reactor: reactor::ReactorHandle,
     session: Option<OverviewSession>,
     generation: u64,
@@ -177,6 +250,7 @@ impl MissionControlActor {
             rx,
             tx,
             cache: None,
+            backgrounds: DesktopBackgrounds::new(mtm),
             reactor,
             session: None,
             generation: 0,
@@ -195,7 +269,9 @@ impl MissionControlActor {
                     if pending_event.is_some() { pending_event.take() } else { self.rx.recv().await }
                 } => {
                     let Some((span, mut event)) = event else { break };
-                    if matches!(event, Event::RefreshCurrentWorkspace | Event::Input(Input::Scroll { .. } | Input::Zoom { .. } | Input::Magnify { .. } | Input::Move(_) | Input::PointerDrag(_) | Input::Pan(_))) {
+                    if matches!(event, Event::RefreshCurrentWorkspace | Event::Input(Input::Scroll { .. } | Input::Zoom { .. } | Input::Magnify { .. } | Input::Move(_) | Input::PointerDrag(_) | Input::Pan(_)))
+                        || matches!(&event, Event::Input(input) if input.navigation().is_some())
+                    {
                         for _ in 0..32 {
                             let Ok((next_span, next)) = self.rx.try_recv() else { break };
                             if let Err(next) = merge_motion(&mut event, next) {
@@ -244,7 +320,7 @@ impl MissionControlActor {
                 }
                 self.refresh_pending = false;
                 if let Some(session) = &mut self.session {
-                    session.refresh(&displays, &workspaces, moved);
+                    session.refresh(&displays, &workspaces, moved, &mut self.backgrounds);
                     self.stack_line_tx
                         .send(super::stack_line::Event::OverviewBounds(session.input_bounds()));
                     self.input_tx.send(super::input::Request::SetMissionControlActive(
@@ -260,6 +336,8 @@ impl MissionControlActor {
                 if let Some(session) = self.session.as_mut() {
                     session.pump_previews();
                     if session.handoff_ready() {
+                        // Native layout, stacking and focus have already been
+                        // prepared and verified underneath the cover.
                         self.close();
                     }
                 }
@@ -290,6 +368,11 @@ impl MissionControlActor {
                 } else if self.settings.enabled {
                     if self.settings.window_previews && !CGPreflightScreenCaptureAccess() {
                         CGRequestScreenCaptureAccess();
+                        // Cancel a pending release-to-activate opener when no session was opened.
+                        self.input_tx.send(super::input::Request::SetMissionControlActive(
+                            false,
+                            Vec::new(),
+                        ));
                         return;
                     }
                     if self.settings.window_previews {
@@ -300,7 +383,7 @@ impl MissionControlActor {
                         self.mtm,
                         &self.settings,
                         self.shared,
-                        &mut self.cache,
+                        &mut self.backgrounds,
                     );
                     if let Some(session) = &mut self.session {
                         session.start_previews(
@@ -393,6 +476,17 @@ mod tests {
         let mut refresh = Event::RefreshCurrentWorkspace;
         assert!(merge_motion(&mut refresh, Event::RefreshCurrentWorkspace).is_ok());
         assert!(merge_motion(&mut refresh, Event::Dismiss).is_err());
+        let mut navigation = Event::Input(Input::Right);
+        assert!(merge_motion(&mut navigation, Event::Input(Input::Right)).is_ok());
+        assert!(merge_motion(&mut navigation, Event::Input(Input::Cycle(true))).is_ok());
+        assert!(matches!(navigation, Event::Input(Input::WindowSteps(3))));
+        assert!(merge_motion(&mut navigation, Event::Input(Input::Left)).is_err());
+        assert!(merge_motion(&mut navigation, Event::Input(Input::Activate)).is_err());
+        assert!(merge_motion(&mut navigation, Event::Input(Input::Down)).is_err());
+        let mut workspace = Event::Input(Input::Up);
+        assert!(merge_motion(&mut workspace, Event::Input(Input::Up)).is_ok());
+        assert!(matches!(workspace, Event::Input(Input::WorkspaceSteps(-2))));
+
         let pivot = CGPoint::new(120., 90.);
         let mut pinch = Event::Input(Input::Magnify { point: pivot, factor: 1.1 });
         assert!(

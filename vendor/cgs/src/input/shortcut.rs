@@ -1,9 +1,9 @@
-// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.4.0。
-use std::cell::{Cell, RefCell};
+// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.5.2。
+use std::cell::{Cell, OnceCell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{DefinedClass, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2::{AnyThread, DefinedClass, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::*;
 use objc2_foundation::NSString;
 
@@ -92,11 +92,26 @@ type ShortcutCallback = Box<dyn FnMut(Option<KeyShortcut>)>;
 type ConflictCallback = Box<dyn FnMut(&KeyShortcut) -> Option<String>>;
 struct RecorderState {
     recording: Cell<bool>,
+    hovered: Cell<bool>,
+    surface: RefCell<Option<objc2::rc::Weak<NSBox>>>,
+    tracking: OnceCell<Retained<NSTrackingArea>>,
+    actions: RefCell<Option<objc2::rc::Weak<NSView>>>,
     modifiers_only: bool,
     modifiers: Cell<Modifiers>,
     value: RefCell<Option<KeyShortcut>>,
     changed: RefCell<Option<ShortcutCallback>>,
     conflict: RefCell<Option<ConflictCallback>>,
+    cancelled: RefCell<Option<Box<dyn FnMut()>>>,
+    capture: RefCell<Option<Box<dyn FnMut(bool) -> Result<(), String>>>>,
+}
+impl Drop for RecorderState {
+    fn drop(&mut self) {
+        if self.recording.get() {
+            if let Some(capture) = self.capture.get_mut().as_mut() {
+                let _ = capture(false);
+            }
+        }
+    }
 }
 define_class!(
     #[unsafe(super(NSButton))]
@@ -105,6 +120,49 @@ define_class!(
     #[ivars = RecorderState]
     struct RecorderButton;
     impl RecorderButton {
+        #[unsafe(method(viewDidMoveToWindow))]
+        fn moved_to_window(&self) {
+            unsafe { let _: () = msg_send![super(self), viewDidMoveToWindow]; }
+            if self.ivars().recording.get() || self.window().is_none() { self.cancel(); }
+        }
+        #[unsafe(method(cancelRecording:))]
+        fn cancel_action(&self, _: &AnyObject) { self.abort(); }
+        #[unsafe(method(clearRecordedShortcut:))]
+        fn clear_action(&self, _: &AnyObject) { self.accept(None); }
+        #[unsafe(method(recordingWindowResigned:))]
+        fn window_resigned(&self, _: &objc2_foundation::NSNotification) {
+            self.ivars().hovered.set(false);
+            self.abort();
+        }
+        #[unsafe(method(updateTrackingAreas))]
+        fn update_tracking(&self) {
+            unsafe { let _: () = msg_send![super(self), updateTrackingAreas]; }
+            self.ivars().tracking.get_or_init(|| {
+                let area = unsafe { NSTrackingArea::initWithRect_options_owner_userInfo(
+                    NSTrackingArea::alloc(), crate::CGRect::ZERO,
+                    NSTrackingAreaOptions::MouseEnteredAndExited | NSTrackingAreaOptions::ActiveInKeyWindow | NSTrackingAreaOptions::InVisibleRect,
+                    Some(self), None,
+                ) };
+                self.addTrackingArea(&area);
+                area
+            });
+        }
+        #[unsafe(method(mouseEntered:))]
+        fn entered(&self, _: &NSEvent) {
+            self.ivars().hovered.set(true);
+            self.refresh_surface();
+        }
+        #[unsafe(method(mouseExited:))]
+        fn exited(&self, _: &NSEvent) {
+            self.ivars().hovered.set(false);
+            self.refresh_surface();
+        }
+        #[unsafe(method(viewDidHide))]
+        fn hidden(&self) {
+            unsafe { let _: () = msg_send![super(self), viewDidHide]; }
+            self.ivars().hovered.set(false);
+            self.abort();
+        }
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self)->bool{true}
         #[unsafe(method(resignFirstResponder))]
@@ -121,18 +179,24 @@ define_class!(
         }
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self,event:&NSEvent){
-            if self.ivars().recording.get() && self.ivars().modifiers_only {
-                let flags=shortcut_modifiers(event.modifierFlags());
-                if !flags.is_empty(){self.ivars().modifiers.set(flags);self.setTitle(&NSString::from_str(&modifier_glyphs(flags)));}
+            if self.ivars().recording.get() {
+                let flags = shortcut_modifiers(event.modifierFlags());
+                if !self.ivars().modifiers_only || !flags.is_empty() { self.ivars().modifiers.set(flags); }
+                let flags = self.ivars().modifiers.get();
+                let text = if flags.is_empty() { "按下按键…".into() } else { modifier_glyphs(flags) };
+                self.setTitle(&NSString::from_str(&text));
             }else{unsafe{let _:()=msg_send![super(self),flagsChanged:event];}}
         }
     }
 );
 impl RecorderButton {
     fn record(&self, event: &NSEvent) {
+        if event.isARepeat() {
+            return;
+        }
         match event.keyCode() {
-            53 => self.cancel(),
-            51 | 117 => self.accept(None),
+            53 => self.abort(),
+            51 | 117 if shortcut_modifiers(event.modifierFlags()).is_empty() => self.accept(None),
             _ => {
                 let modifiers = if self.ivars().modifiers_only {
                     self.ivars().modifiers.get()
@@ -161,11 +225,17 @@ impl RecorderButton {
     fn new(ui: &Ui, modifiers_only: bool) -> Retained<Self> {
         let this = Self::alloc(ui.mtm()).set_ivars(RecorderState {
             recording: Cell::new(false),
+            hovered: Cell::new(false),
+            surface: RefCell::new(None),
+            tracking: OnceCell::new(),
+            actions: RefCell::new(None),
             modifiers_only,
             modifiers: Cell::new(Modifiers::empty()),
             value: RefCell::new(None),
             changed: RefCell::new(None),
             conflict: RefCell::new(None),
+            cancelled: RefCell::new(None),
+            capture: RefCell::new(None),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
         this.setBezelStyle(crate::controls::action_button_bezel());
@@ -182,24 +252,163 @@ impl RecorderButton {
         this
     }
 
+    // Recording actions are not part of the idle field's allocation cost.
+    fn ensure_actions(&self) {
+        let Some(actions) = self.ivars().actions.borrow().as_ref().and_then(|view| view.load())
+        else {
+            return;
+        };
+        let Some(stack) = actions.downcast_ref::<NSStackView>() else {
+            return;
+        };
+        if !stack.arrangedSubviews().is_empty() {
+            return;
+        }
+        for (symbol, label, help, action, color) in [
+            (
+                "arrow.uturn.forward.circle.fill",
+                "取消录制并恢复上一个快捷键",
+                "恢复上一个快捷键（Esc）",
+                sel!(cancelRecording:),
+                NSColor::systemGreenColor(),
+            ),
+            (
+                "xmark.circle.fill",
+                "清除快捷键",
+                "移除此绑定（Delete）",
+                sel!(clearRecordedShortcut:),
+                NSColor::secondaryLabelColor(),
+            ),
+        ] {
+            let button = NSButton::new(self.mtm());
+            button.setBordered(false);
+            button.setImage(crate::image::Symbol::named(symbol).as_deref());
+            button.setImagePosition(NSCellImagePosition::ImageOnly);
+            button.setContentTintColor(Some(&color));
+            button.setAccessibilityLabel(Some(&NSString::from_str(label)));
+            button.setToolTip(Some(&NSString::from_str(help)));
+            button.setTranslatesAutoresizingMaskIntoConstraints(false);
+            button.widthAnchor().constraintEqualToConstant(16.0).setActive(true);
+            unsafe {
+                button.setTarget(Some(self));
+                button.setAction(Some(action));
+            }
+            stack.addArrangedSubview(&button);
+        }
+    }
+
     fn begin(&self) {
+        if self.ivars().recording.get() {
+            return;
+        }
+        // Resign the previous recorder before acquiring this recorder's lease.
+        if let Some(window) = self.window() {
+            window.makeFirstResponder(Some(self));
+        }
+        if let Some(capture) = self.ivars().capture.borrow_mut().as_mut() {
+            if let Err(message) = capture(true) {
+                self.setToolTip(Some(&NSString::from_str(&message)));
+                self.setAccessibilityHelp(Some(&NSString::from_str(&message)));
+                return;
+            }
+        }
+        if let Some(window) = self.window() {
+            let center = objc2_foundation::NSNotificationCenter::defaultCenter();
+            unsafe {
+                center.removeObserver(self);
+                center.addObserver_selector_name_object(
+                    self,
+                    sel!(recordingWindowResigned:),
+                    Some(NSWindowDidResignKeyNotification),
+                    Some(&window),
+                );
+            }
+        }
+        self.ensure_actions();
         self.ivars().recording.set(true);
         self.ivars().modifiers.set(Modifiers::empty());
         self.setTitle(&NSString::from_str(if self.ivars().modifiers_only {
             "按下修饰键，然后按回车键"
         } else {
-            "按下快捷键…"
+            "按下按键…"
         }));
+        self.setToolTip(Some(&NSString::from_str(
+            "按下新的按键。Esc 取消，Delete 移除该快捷键。",
+        )));
+        self.setAccessibilityHelp(Some(&NSString::from_str(
+            "正在录制快捷键。Esc 取消，Delete 移除该快捷键。",
+        )));
+        self.refresh_surface();
         if let Some(w) = self.window() {
             w.makeFirstResponder(Some(self));
         }
     }
 
+    fn abort(&self) {
+        if !self.ivars().recording.get() {
+            return;
+        }
+        let _keep_alive = self.retain();
+        self.cancel();
+        if let Ok(mut cancelled) = self.ivars().cancelled.try_borrow_mut() {
+            if let Some(cancelled) = cancelled.as_mut() {
+                callback(cancelled);
+            }
+        }
+    }
+
     fn cancel(&self) {
-        self.ivars().recording.set(false);
+        if self.ivars().recording.replace(false) {
+            unsafe {
+                objc2_foundation::NSNotificationCenter::defaultCenter().removeObserver(self);
+            }
+            if let Some(capture) = self.ivars().capture.borrow_mut().as_mut() {
+                let _ = capture(false);
+            }
+        }
         self.setToolTip(None);
         self.setAccessibilityHelp(None);
         self.refresh();
+    }
+
+    fn refresh_surface(&self) {
+        let Some(surface) =
+            self.ivars().surface.borrow().as_ref().and_then(|surface| surface.load())
+        else {
+            return;
+        };
+        let bound = self.ivars().value.borrow().is_some();
+        let recording = self.ivars().recording.get();
+        let hovered = self.ivars().hovered.get();
+        if let Some(actions) = self.ivars().actions.borrow().as_ref().and_then(|view| view.load()) {
+            actions.setHidden(!recording);
+        }
+        self.setAlignment(if recording {
+            NSTextAlignment::Left
+        } else {
+            NSTextAlignment::Center
+        });
+        let base = if bound {
+            NSColor::quaternaryLabelColor()
+        } else {
+            NSColor::tertiarySystemFillColor()
+        };
+        let fill = if recording {
+            NSColor::controlBackgroundColor()
+        } else if hovered {
+            base.blendedColorWithFraction_ofColor(0.10, &NSColor::labelColor())
+                .unwrap_or(base)
+        } else {
+            base
+        };
+        surface.setFillColor(&fill);
+        surface.setBorderColor(&NSColor::controlAccentColor().colorWithAlphaComponent(0.65));
+        surface.setBorderWidth(if recording { 3.0 } else { 0.0 });
+        self.setContentTintColor(Some(&*if bound || hovered || recording {
+            NSColor::labelColor()
+        } else {
+            NSColor::secondaryLabelColor()
+        }));
     }
 
     fn refresh(&self) {
@@ -211,6 +420,16 @@ impl RecorderButton {
             .map(ToString::to_string)
             .unwrap_or_else(|| "录制快捷键".into());
         self.setTitle(&NSString::from_str(&value));
+        let help = if self.ivars().modifiers_only {
+            "点击后按下修饰键，再按回车键。Esc 取消。"
+        } else if self.ivars().value.borrow().is_some() {
+            "点击以修改此快捷键。Esc 取消；录制时按 Delete 可移除。"
+        } else {
+            "点击以录制此命令的按键。Esc 取消。"
+        };
+        self.setToolTip(Some(&NSString::from_str(help)));
+        self.setAccessibilityHelp(Some(&NSString::from_str(help)));
+        self.refresh_surface();
         unsafe {
             self.setAccessibilityValue(Some(&NSString::from_str(&value)));
         }
@@ -255,6 +474,33 @@ impl KeyRecorder {
         self.native.refresh();
     }
 
+    /// A quiet shortcut field, with hover feedback and an accent outline while recording.
+    pub fn flat_field(self: &std::rc::Rc<Self>, ui: &Ui) -> crate::layout::GroupBox {
+        self.native.setBordered(false);
+        let actions = crate::layout::HStack::new(ui).spacing(2.0);
+        *self.native.ivars().actions.borrow_mut() = Some(objc2::rc::Weak::new(actions.ns_view()));
+        actions.set_hidden(true);
+        self.hugging_priority(1.0, NSLayoutConstraintOrientation::Horizontal);
+        let content = crate::layout::HStack::new(ui)
+            .spacing(4.0)
+            .insets(crate::Insets {
+                left: 8.0,
+                right: 8.0,
+                top: 0.0,
+                bottom: 0.0,
+            })
+            .push(self.clone())
+            .push(actions);
+        let field =
+            crate::layout::GroupBox::with_insets(ui, content, crate::layout::uniform_insets(0.0));
+        if let Some(surface) = field.ns_view().downcast_ref::<NSBox>() {
+            surface.setCornerRadius(6.0);
+            *self.native.ivars().surface.borrow_mut() = Some(objc2::rc::Weak::new(surface));
+        }
+        self.native.refresh_surface();
+        field
+    }
+
     pub fn get_value(&self) -> Option<KeyShortcut> { self.native.ivars().value.borrow().clone() }
 
     /// Show text in place of the recorded value, such as a shortcut it cannot represent.
@@ -266,6 +512,18 @@ impl KeyRecorder {
 
     pub fn on_change(self, f: impl FnMut(Option<KeyShortcut>) + 'static) -> Self {
         *self.native.ivars().changed.borrow_mut() = Some(Box::new(f));
+        self
+    }
+
+    /// Acquire/release a backend recording lease. A failed acquisition prevents recording.
+    pub fn capture(self, f: impl FnMut(bool) -> Result<(), String> + 'static) -> Self {
+        *self.native.ivars().capture.borrow_mut() = Some(Box::new(f));
+        self
+    }
+
+    /// Called when Escape, hiding, or window deactivation abandons recording.
+    pub fn on_cancel(self, f: impl FnMut() + 'static) -> Self {
+        *self.native.ivars().cancelled.borrow_mut() = Some(Box::new(f));
         self
     }
 
@@ -305,6 +563,10 @@ impl ModifierRecorder {
             self.0
                 .on_change(move |s| f(s.map(|s| s.modifiers).unwrap_or_else(Modifiers::empty))),
         )
+    }
+
+    pub fn capture(self, f: impl FnMut(bool) -> Result<(), String> + 'static) -> Self {
+        Self(self.0.capture(f))
     }
 
     pub fn ns_button(&self) -> &NSButton { self.0.ns_button() }

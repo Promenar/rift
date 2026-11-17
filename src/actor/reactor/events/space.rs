@@ -100,6 +100,7 @@ pub struct WindowServerDestroyedObservations {
     pub resolved_space: Option<SpaceId>,
     pub active_spaces: HashSet<SpaceId>,
     pub ordered_in: Option<bool>,
+    pub suitable: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -129,6 +130,7 @@ pub fn handle_window_server_destroyed(
         resolved_space,
         active_spaces,
         ordered_in,
+        suitable,
     } = observations;
     let mut outcome = EventOutcome::default();
     if matches!(kind, SpaceEventKind::Fullscreen) {
@@ -146,6 +148,7 @@ pub fn handle_window_server_destroyed(
             resolved_space,
             &active_spaces,
             ordered_in,
+            suitable,
         ) {
             crate::model::window_store::NativeDeparture::Moved(window, space) => {
                 if let Some(wid) = window {
@@ -163,8 +166,7 @@ pub fn handle_window_server_destroyed(
             crate::model::window_store::NativeDeparture::Hidden { window, remove_projection } => {
                 if let Some(wid) = window {
                     if remove_projection {
-                        outcome = outcome
-                            .with_layout_event(LayoutEvent::WindowRemovedPreserveFloating(wid));
+                        outcome = outcome.with_layout_event(LayoutEvent::WindowSuspended(wid));
                     }
                     outcome = outcome.with_app_request(wid.pid, Request::WindowMaybeDestroyed(wid));
                 }
@@ -247,8 +249,7 @@ pub fn handle_window_server_appeared(
                         last_known_user_space,
                         owner_pid,
                     ) {
-                        outcome = outcome
-                            .with_layout_event(LayoutEvent::WindowRemovedPreserveFloating(wid));
+                        outcome = outcome.with_layout_event(LayoutEvent::WindowSuspended(wid));
                     }
                     if tracked_window_id.is_none()
                         && let Some(pid) = owner_pid

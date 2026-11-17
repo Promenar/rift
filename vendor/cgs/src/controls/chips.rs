@@ -1,4 +1,4 @@
-// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.4.0。
+// 简体中文界面修改：仅本地化显示文案，原始代码与许可来自 cgs 0.5.2。
 //! A short, editable list of numbers shown as chips.
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -594,8 +594,9 @@ impl Inner {
                 .value(start)
                 .on_change(move |value| field_commit(value)),
         );
+        field.hide_stepper();
         field.accessibility_label(&self.label);
-        field.width(56.0);
+        field.width(crate::view::Metrics::VALUE_FIELD_WIDTH);
         let weak_field = Rc::downgrade(&field);
         let app = Application::shared(&self.ui);
         let slide = commit.clone();

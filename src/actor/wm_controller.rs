@@ -88,24 +88,65 @@ pub enum ConfiguredLayoutCommand {
     SwitchPresetColumnWidth,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, strum_macros::VariantNames)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    strum_macros::VariantNames,
+    rift_config_derive::CommandCatalog,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WmCmd {
+    #[command(group = 2, label = "切换平铺", order = 40)]
     ToggleSpaceActivated,
+    #[command(
+        label = "运行命令",
+        order = 45,
+        sample = "Self::Exec(ExecCmd::String(String::new()))"
+    )]
     Exec(ExecCmd),
+    #[command(label = "重新加载配置", order = 46)]
     ReloadConfig,
+    #[command(
+        label = "切换到键位表",
+        order = 44,
+        sample = "Self::BindingMode(\"default\".into())"
+    )]
     BindingMode(String),
 
+    #[command(label = "下一个工作区", group = 2, order = 31)]
     NextWorkspace,
+    #[command(group = 2, label = "上一个工作区", order = 32)]
     PrevWorkspace,
+    #[command(
+        label = "切换到工作区",
+        group = 2,
+        order = 29,
+        sample = "Self::SwitchToWorkspace(WorkspaceSelector::Index(0))"
+    )]
     SwitchToWorkspace(WorkspaceSelector),
+    #[command(
+        label = "移动窗口到工作区",
+        group = 2,
+        order = 30,
+        sample = "Self::MoveWindowToWorkspace(WorkspaceSelector::Index(0))"
+    )]
     MoveWindowToWorkspace(WorkspaceSelector),
+    #[command(label = "创建工作区", group = 2, order = 34)]
     CreateWorkspace,
+    #[command(group = 2, label = "上一个使用的工作区", order = 33)]
     SwitchToLastWorkspace,
 
+    #[command(group = 5, label = "显示全部工作区", order = 41)]
     ShowMissionControlAll,
+    #[command(group = 5, label = "显示当前工作区", order = 42)]
     ShowMissionControlCurrent,
+    #[command(group = 5, label = "关闭总览", order = 43)]
     DismissMissionControl,
+    #[command(label = "关闭窗口", group = 0, order = 11)]
     CloseWindow,
 }
 
@@ -478,11 +519,16 @@ impl WmController {
         };
 
         let policy = running_app.activationPolicy();
-        if policy == NSApplicationActivationPolicy::Prohibited {
+        // A process started outside LaunchServices reads Prohibited until it
+        // sets its policy, and may show a window before rift reads Regular. A
+        // window shows it is an app, so wait for the policy as for Accessory.
+        let prohibited = policy == NSApplicationActivationPolicy::Prohibited;
+        if prohibited && source != AppDiscoverySource::WindowServer {
+            debug!(?pid, bundle = ?info.bundle_id, "App is prohibited; not spawning");
             return;
         }
         if !should_spawn_app(policy, source) {
-            if policy != NSApplicationActivationPolicy::Accessory {
+            if policy != NSApplicationActivationPolicy::Accessory && !prohibited {
                 return;
             }
             sys::app::ensure_activation_policy_observer(pid, running_app.clone(), info.clone());

@@ -30,10 +30,10 @@ pub fn config_file() -> PathBuf {
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceMode {
     /// 每个 macOS 桌面拥有独立编号的工作区集合。
-    #[default]
     #[setting(label = "各显示器独立")]
     PerDisplay,
     /// 所有显示器共用一组工作区。每个工作区同一时间只属于一台显示器。
+    #[default]
     #[setting(label = "全局")]
     Global,
 }
@@ -179,6 +179,10 @@ pub struct AppWorkspaceRule {
     /// 无障碍子角色，必须非空，并与 AX API 报告的窗口子角色精确比较。
     #[setting(custom)]
     pub ax_subrole: Option<String>,
+    /// Required SLS window tags; all bits must be present.
+    #[doc(hidden)]
+    #[setting(ignore)]
+    pub window_tags: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -293,15 +297,37 @@ impl VirtualWorkspaceSettings {
             }
         }
 
-        // Validate rules and check duplicates in a single pass
-        let mut seen_app_ids = crate::common::collections::HashSet::default();
-        let mut seen_app_names = crate::common::collections::HashSet::default();
-        let mut seen_title_regexes = crate::common::collections::HashSet::default();
-        let mut seen_title_substrings = crate::common::collections::HashSet::default();
-        let mut seen_ax_roles = crate::common::collections::HashSet::default();
-        let mut seen_ax_subroles = crate::common::collections::HashSet::default();
+        // Rules for different apps can share a title or AX role. A rule is only a duplicate
+        // when it matches exactly the same windows as an earlier one, and since the earlier
+        // rule wins a tie, the later one would never apply.
+        let mut seen_matchers: crate::common::collections::HashMap<_, usize> = Default::default();
 
         for (index, rule) in self.app_rules.iter().enumerate() {
+            fn field(value: &Option<String>) -> Option<&str> {
+                value.as_deref().filter(|v| !v.is_empty())
+            }
+            let matcher = (
+                field(&rule.app_id).map(str::to_ascii_lowercase),
+                field(&rule.app_name).map(str::to_lowercase),
+                field(&rule.title_regex).map(str::to_owned),
+                field(&rule.title_substring).map(str::to_lowercase),
+                field(&rule.ax_role).map(str::to_owned),
+                field(&rule.ax_subrole).map(str::to_owned),
+                rule.window_tags,
+            );
+            let first = *seen_matchers.entry(matcher).or_insert(index);
+            if first != index {
+                issues.push(format!(
+                    "App rule {index} matches the same windows as rule {first}, so it never applies"
+                ));
+            }
+
+            if rule.window_tags.is_some_and(|mask| mask == 0 || mask > i64::MAX as u64) {
+                issues.push(format!(
+                    "App rule {index} window_tags must be between 1 and 9223372036854775807"
+                ));
+            }
+
             let app_id_empty = rule.app_id.as_ref().map_or(true, |id| id.is_empty());
             if app_id_empty
                 && rule.app_name.is_none()
@@ -309,9 +335,10 @@ impl VirtualWorkspaceSettings {
                 && rule.title_substring.is_none()
                 && rule.ax_role.is_none()
                 && rule.ax_subrole.is_none()
+                && rule.window_tags.is_none()
             {
                 issues.push(format!(
-                    "App rule {} has no app_id, app_name, title_regex, or title_substring specified",
+                    "App rule {} needs at least one matching condition (application, title, Accessibility role, or raw window tags)",
                     index
                 ));
             }
@@ -370,26 +397,6 @@ impl VirtualWorkspaceSettings {
                         index, app_id
                     ));
                 }
-
-                let has_specific_match = rule.app_name.is_some()
-                    || rule.title_regex.is_some()
-                    || rule.title_substring.is_some()
-                    || rule.ax_role.is_some()
-                    || rule.ax_subrole.is_some();
-                if !app_id.is_empty() && !has_specific_match && !seen_app_ids.insert(app_id) {
-                    issues.push(format!("Duplicate app_id '{}' in rule {}", app_id, index));
-                }
-            }
-
-            if let Some(ref app_name) = rule.app_name {
-                let has_specific_match = rule.app_id.is_some()
-                    || rule.title_regex.is_some()
-                    || rule.title_substring.is_some()
-                    || rule.ax_role.is_some()
-                    || rule.ax_subrole.is_some();
-                if !has_specific_match && !seen_app_names.insert(app_name) {
-                    issues.push(format!("Duplicate app_name '{}' in rule {}", app_name, index));
-                }
             }
 
             if let Some(ref title_re) = rule.title_regex {
@@ -402,8 +409,6 @@ impl VirtualWorkspaceSettings {
                         "App rule {} has invalid title_regex '{}': {}",
                         index, title_re, error
                     ));
-                } else if !seen_title_regexes.insert(title_re) {
-                    issues.push(format!("Duplicate title_regex '{}' in rule {}", title_re, index));
                 }
             }
 
@@ -420,31 +425,14 @@ impl VirtualWorkspaceSettings {
                 ));
             }
 
-            if let Some(ref title_sub) = rule.title_substring {
-                if title_sub.is_empty() {
-                    issues.push(format!("App rule {} has empty title_substring", index));
-                } else if !seen_title_substrings.insert(title_sub) {
-                    issues.push(format!(
-                        "Duplicate title_substring '{}' in rule {}",
-                        title_sub, index
-                    ));
-                }
+            if rule.title_substring.as_deref() == Some("") {
+                issues.push(format!("App rule {} has empty title_substring", index));
             }
-
-            if let Some(ref ax_role) = rule.ax_role {
-                if ax_role.is_empty() {
-                    issues.push(format!("App rule {} has empty ax_role", index));
-                } else if !seen_ax_roles.insert(ax_role) {
-                    issues.push(format!("Duplicate ax_role '{}' in rule {}", ax_role, index));
-                }
+            if rule.ax_role.as_deref() == Some("") {
+                issues.push(format!("App rule {} has empty ax_role", index));
             }
-
-            if let Some(ref ax_sub) = rule.ax_subrole {
-                if ax_sub.is_empty() {
-                    issues.push(format!("App rule {} has empty ax_subrole", index));
-                } else if !seen_ax_subroles.insert(ax_sub) {
-                    issues.push(format!("Duplicate ax_subrole '{}' in rule {}", ax_sub, index));
-                }
+            if rule.ax_subrole.as_deref() == Some("") {
+                issues.push(format!("App rule {} has empty ax_subrole", index));
             }
         }
 
@@ -853,7 +841,7 @@ pub struct MenuBarSettings {
     pub enabled: bool,
     #[serde(default)]
     /// 在菜单栏中包含没有窗口的工作区。
-    #[setting(label = "显示空工作区", enabled_by = "enabled")]
+    #[setting(label = "显示空工作区")]
     pub show_empty: bool,
     #[serde(default = "yes")]
     /// 在工作区旁显示当前快捷键模式（默认模式除外）。
@@ -1093,6 +1081,11 @@ impl StackLineReserve {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MissionControlSettings {
+    #[serde(default)]
+    /// 松开快捷键及所有修饰键时，切换到所选窗口或工作区。
+    /// 关闭后需按回车键或点击才能切换。
+    #[setting(label = "松开快捷键时切换窗口", enabled_by = "enabled")]
+    pub activate_on_hotkey_release: bool,
     /// 在总览中显示没有窗口的工作区。
     #[serde(default = "yes")]
     #[setting(label = "显示空工作区", enabled_by = "enabled")]
@@ -1907,6 +1900,92 @@ impl ConfigSource {
         } else {
             self.binding_modes.get_mut(mode).ok_or_else(|| "Keymap no longer exists".into())
         }
+    }
+
+    /// The hotkey a binding key triggers, with this source's modifier combinations.
+    pub fn hotkey(&self, key: &str) -> Option<Hotkey> {
+        Config::binding_hotkey(key, &self.modifier_combinations).map(|(_, hotkey)| hotkey)
+    }
+
+    /// The binding in `mode`, other than `except`, that the keys of `key` would also trigger.
+    pub fn conflicting_binding(
+        &self,
+        mode: &str,
+        key: &str,
+        except: Option<&str>,
+    ) -> Option<(&String, &WmCommand)> {
+        let hotkey = self.hotkey(key)?;
+        self.keymap(mode)?.iter().find(|(other, _)| {
+            Some(other.as_str()) != except
+                && self.hotkey(other).is_some_and(|other| other.overlaps(&hotkey))
+        })
+    }
+
+    /// Binds `key` in `mode`, replacing the binding at `old`. Never overwrites another
+    /// shortcut, and fails if `old` no longer holds `expected`, such as after a reload.
+    pub fn bind(
+        &mut self,
+        mode: &str,
+        old: Option<(&str, &WmCommand)>,
+        key: String,
+        command: WmCommand,
+    ) -> Result<(), String> {
+        if self.hotkey(&key).is_none() {
+            return Err(format!("“{key}” is not a valid shortcut"));
+        }
+        if let Some((other, _)) = self.conflicting_binding(mode, &key, old.map(|(old, _)| old)) {
+            return Err(format!("“{other}” already uses this shortcut"));
+        }
+        let bindings = self.keymap_mut(mode)?;
+        if let Some((old, expected)) = old {
+            if bindings.get(old) != Some(expected) {
+                return Err("This shortcut changed elsewhere; try again".into());
+            }
+            bindings.remove(old);
+        }
+        bindings.insert(key, command);
+        Ok(())
+    }
+
+    /// Replace exactly the conflicts the user reviewed, as one source transaction.
+    /// Validate the entire snapshot before touching any binding, including `old`.
+    pub fn bind_replacing(
+        &mut self,
+        mode: &str,
+        old: Option<(&str, &WmCommand)>,
+        key: String,
+        command: WmCommand,
+        expected_conflicts: &[(String, WmCommand)],
+    ) -> Result<(), String> {
+        let hotkey = self.hotkey(&key).ok_or_else(|| format!("“{key}” is not a valid shortcut"))?;
+        let bindings = self.keymap(mode).ok_or("Shortcut mode no longer exists")?;
+        if let Some((old, expected)) = old {
+            if bindings.get(old) != Some(expected) {
+                return Err("This shortcut changed elsewhere; try again".into());
+            }
+        }
+        let conflicts: Vec<_> = bindings
+            .iter()
+            .filter(|(other, _)| {
+                Some(other.as_str()) != old.map(|(old, _)| old)
+                    && self.hotkey(other).is_some_and(|other| other.overlaps(&hotkey))
+            })
+            .map(|(key, command)| (key.clone(), command.clone()))
+            .collect();
+        if conflicts != expected_conflicts {
+            return Err(
+                "The conflicting shortcuts changed elsewhere. Record the keys again.".into(),
+            );
+        }
+        let bindings = self.keymap_mut(mode)?;
+        for (key, _) in expected_conflicts {
+            bindings.remove(key);
+        }
+        if let Some((old, _)) = old {
+            bindings.remove(old);
+        }
+        bindings.insert(key, command);
+        Ok(())
     }
 
     fn check_keymap_name(&self, name: &str, old: Option<&str>) -> Result<(), String> {

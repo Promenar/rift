@@ -35,7 +35,7 @@ use rift_wm::sys::skylight::{
 };
 use tokio::join;
 
-embed_plist::embed_info_plist!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/Info.plist"));
+embed_plist::embed_info_plist!(concat!(env!("OUT_DIR"), "/Info.plist"));
 
 #[derive(Parser)]
 #[command(name = "rift", version = env!("RIFT_VERSION"))]
@@ -180,7 +180,7 @@ Enable it in System Settings > Desktop & Dock (Mission Control) and restart Rift
 
     if opt.validate {
         let path = restore_file();
-        match LayoutEngine::load(path.clone()) {
+        match LayoutEngine::validate_file(path.clone()) {
             Ok(_) => println!("Master file is valid: {}", path.display()),
             Err(error) => {
                 eprintln!("Could not load master file at {}: {error}", path.display());

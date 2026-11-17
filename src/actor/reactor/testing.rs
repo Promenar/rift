@@ -15,6 +15,10 @@ use crate::sys::window_server::{WindowServerId, WindowServerInfo};
 
 impl Reactor {
     pub fn new_for_test(layout: LayoutEngine) -> Reactor {
+        // Simulated reactors must not query the live WindowServer session.
+        crate::sys::event::TEST_MOUSE_STATE
+            .with(|state| state.set(Some(crate::sys::event::MouseState::Up)));
+        crate::sys::screen::TEST_SEPARATE_SPACES.with(|separate| separate.set(Some(true)));
         let mut config = Config::default();
         config.settings.default_disable = false;
         config.settings.animate = false;
@@ -238,6 +242,7 @@ impl Reactor {
         is_manageable: bool,
     ) {
         self.state.windows.insert_window(wid, super::WindowState {
+            native_transient: false,
             info: WindowInfo {
                 has_native_tabs: false,
                 is_standard: true,

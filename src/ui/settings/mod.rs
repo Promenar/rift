@@ -117,6 +117,7 @@ type Preview = Rc<dyn Fn(&ConfigSource)>;
 /// Runtime context shared by the window model and its sheet drafts.
 struct Env {
     requests: UnboundedSender<Request>,
+    shortcut_capture: RefCell<Option<Rc<dyn Fn(bool) -> Result<(), String>>>>,
     window: RefCell<WindowRef>,
     displays: RefCell<Vec<ScreenInfo>>,
     config_path: PathBuf,
@@ -334,6 +335,7 @@ impl Router {
     }
 
     fn show(&self, id: Category) {
+        let navigation = timing::start();
         self.title.set_text(id.title());
         if self.pages.borrow()[id.index()].is_none() {
             let page_timing = timing::start();
@@ -361,6 +363,9 @@ impl Router {
                 id.title(),
                 false,
             );
+        }
+        if navigation.is_some() {
+            timing::finish(navigation, &format!("{} page navigation", id.title()));
         }
     }
 }
@@ -400,6 +405,11 @@ impl SettingsActivation {
 }
 
 impl Settings {
+    /// Install the process transport used to protect shortcut recording from the daemon.
+    pub fn set_shortcut_capture(&self, capture: impl Fn(bool) -> Result<(), String> + 'static) {
+        *self.router.model.env.shortcut_capture.borrow_mut() = Some(Rc::new(capture));
+    }
+
     pub fn new(
         ui: Ui,
         source: impl Into<Arc<ConfigSource>>,
@@ -411,6 +421,7 @@ impl Settings {
     ) -> Self {
         let env = Rc::new(Env {
             requests,
+            shortcut_capture: RefCell::new(None),
             window: RefCell::new(WindowRef::default()),
             displays: RefCell::new(displays),
             config_path,
@@ -892,6 +903,9 @@ impl FormBuilder {
         } else {
             field.on_change(commit.clone())
         });
+        if slider_range.is_some() {
+            input.hide_stepper();
+        }
         let slider = slider_range.as_ref().map(|range| {
             let model = self.model.clone();
             let (min, max) = range(&model.upgrade().unwrap().source.borrow());

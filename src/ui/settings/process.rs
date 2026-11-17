@@ -206,6 +206,16 @@ async fn open(
             let _ = closed.send(Message::Closed);
         },
     );
+    settings.set_shortcut_capture(move |recording| {
+        if recording && !NSApplication::sharedApplication(mtm).isActive() {
+            return Err("录制快捷键前请先激活设置窗口。".into());
+        }
+        RiftMachClient::connect()
+            .and_then(|client| client.set_shortcut_recording(std::process::id() as i32, recording))
+            .map_err(|error| {
+                format!("Rift 不可用时无法安全录制按键：{error}")
+            })
+    });
     super::timing::finish(construction, "Settings::new");
     if let Some(startup) = startup {
         let updated = std::cell::Cell::new(false);
@@ -627,7 +637,9 @@ fn runtime(client: &RiftMachClient) -> Result<Runtime, ClientError> {
 /// A user-facing message, or `Err` when the daemon itself is unreachable.
 fn recoverable(error: ClientError) -> Result<String, String> {
     match error {
-        ClientError::ServiceUnavailable | ClientError::Mach { .. } => Err(error.to_string()),
+        ClientError::ServiceUnavailable
+        | ClientError::RequestTimedOut
+        | ClientError::Mach { .. } => Err(error.to_string()),
         ClientError::MessageTooLarge => Ok("The configuration is too large for Settings to \
                                             send. Edit the configuration file directly."
             .into()),

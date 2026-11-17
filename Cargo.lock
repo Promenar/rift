@@ -178,7 +178,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "cgs"
-version = "0.4.0"
+version = "0.5.2"
 dependencies = [
  "block2",
  "dispatch2",
@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "rift-wm"
-version = "0.7.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "ascii_tree",
