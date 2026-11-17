@@ -43,7 +43,7 @@
 安装过程中的已知现象：
 
 - 替换二进制后的首次启动被 macOS 以 `SIGKILL (Code Signature Invalid) / Launch Constraint Violation` 终止一次，launchd 自动重启后稳定；之后 `rift service restart` 未复现，也未新增崩溃报告。
-- 屏幕休眠/锁定时重启会让布局恢复降级（只保留当前工作区）。唤醒后再次 `rift service restart` 可从快照正常恢复 4 个工作区。
+- 屏幕休眠/锁定期间重启后，`rift-cli query workspaces` 只看到当前工作区；唤醒后再次 `rift service restart` 可恢复完整工作区。全屏应用（游戏、视频）会占用独立 macOS 空间，此时查询同样只显示该空间的工作区，属正常现象；两种情况都未进一步定位根因。
 - 上游 global 模式下 Rift 会为没有工作区的显示器自动播种一个工作区，因此本机现在除 first/second/Workspace 3/Workspace 4 外多出一个 Workspace 5（位于第二台显示器）。需要旧的 per-display 行为时，在 `~/.config/rift/config.toml` 的 `[virtual_workspaces]` 中设置 `mode = "per_display"`。
 
 回退到 v0.7.2 中文版：
