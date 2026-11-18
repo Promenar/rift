@@ -8,8 +8,10 @@
 
 | 分支 | 内容 |
 | --- | --- |
-| `main` | 上游最新 `main` 加简体中文提交，作为长期维护线 |
-| `zh-cn/v0.8.3` | v0.8.3 汉化迁移的验证分支，验证通过后合入 `main` |
+| `upstream-main` | 只读镜像，始终等于 `upstream/main`，不提交、不推送，只用于查看和合并上游 |
+| `main` | 集成分支：上游最新 + 简体中文 + 本仓库功能改动 |
+| `feat/*` | 功能分支，从 `main` 切出，验证通过后合入 `main` |
+| `zh-cn/v0.8.3` | v0.8.3 汉化迁移的验证分支（已合入 `main`） |
 | `zh-cn/v0.7.0` | v0.7.0 基线的完整汉化与多屏页签修复历史，保留用于对比和回退 |
 
 ## 使用范围
@@ -36,7 +38,7 @@
 - 版本目录：`~/Library/Application Support/Rift/Versions/0.8.3-zh-cn-20261118-022151`
 - `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+06c06cc21cb7`
 - 二进制 SHA-256：`8831a35675acc9f393e5df361ec589ba49031c0c7f54e2edf5c9db05cf1fb6d7`
-- 辅助功能授权绑定的就是该文件，不要重新 `codesign` 或替换它
+- 二进制已用本机 `Apple Development` 证书签名，designated requirement 为「标识符 + 证书」，不再绑定 cdhash；用同一身份重新签名并替换后，辅助功能授权可继续沿用（2026-11-18 已实测：重建后 cdhash 变化，窗口接管无需重新授权）
 - 服务用 `rift service restart` 管理；`rift-cli service` 已提示迁到 `rift`
 - 用户配置、快捷键、应用规则与 LaunchAgent 未改；持久化布局快照在升级前备份
 
@@ -56,6 +58,23 @@ python3 "$BK/rollback.py"
 
 备份目录同时保存升级前的 LaunchAgent、`config.toml`、`layout.ron`、旧入口链接与本机校验值。`rollback.py` 会校验旧二进制 SHA-256 后再切回，并按目标版本选择 `rift service` 或 `rift-cli service`。
 
+## 本地开发签名
+
+ad-hoc 签名的 designated requirement 是 cdhash，每次重建都会让辅助功能授权失效。本仓库改用本机开发证书签名，让授权跨重建继承：
+
+```sh
+cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli --target aarch64-apple-darwin
+scripts/local-sign.sh target/aarch64-apple-darwin/release/rift target/aarch64-apple-darwin/release/rift-cli
+```
+
+`scripts/local-sign.sh` 默认取 `security find-identity -p codesigning` 的第一个身份，可用 `RIFT_SIGN_IDENTITY` 覆盖。签名后核对：
+
+```sh
+codesign -d -r- ./rift   # 应显示 identifier "git.acsandmann.rift" 与证书 CN，而非 cdhash
+```
+
+注意：只有同一签名身份、同一二进制路径才能继承授权；换证书、换路径或改用 ad-hoc 签名都需要重新授权。
+
 回退到安装前的 0.7.0 中文版：
 
 ```sh
@@ -69,15 +88,24 @@ python3 "$HOME/Library/Application Support/Rift/Backups/20261102-005502-v072-aut
 
 ## 构建与验证
 
-依赖 macOS 原生框架，使用本机 macOS arm64、Rust/Cargo 与 Xcode。验证命令：
+依赖 macOS 原生框架，使用本机 macOS arm64、Rust/Cargo 与 Xcode。开发环境另需：
+
+- `nightly` 工具链的 `rustfmt`：`rustup toolchain install nightly --profile minimal --component rustfmt`。`rustfmt.toml` 使用 `unstable_features` 等 nightly 专有选项，stable rustfmt 无法执行。
+- `cargo-nextest`：`cargo install cargo-nextest --locked`，用于复现上游 CI 的测试命令。
+- `clippy`（可选）：`rustup component add clippy`。上游 CI 不运行 clippy，仅作为本地增强。
+
+验证命令（与上游 CI 对齐）：
 
 ```sh
+cargo +nightly fmt --all --check
 cargo check --locked -j 2
-cargo test --locked --lib -j 2
+cargo nextest run --locked -E 'not binary(settings_native)' -j 2
 cargo test --locked --test settings_native -j 2 -- --ignored --keyboard
 cargo test --locked --test settings_native -j 2 -- --ignored --about
 cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli --target aarch64-apple-darwin
 ```
+
+`settings_native` 需要真实 AppKit 窗口，上游 CI 明确跳过它（`-E 'not binary(settings_native)'`）；本地通过 `--keyboard`、`--about` 和 `--render` 截图单独验证。
 
 2026-11-18 在 v0.8.3 基线上的实际结果：
 
