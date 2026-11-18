@@ -278,12 +278,16 @@ modifier = "fn"
 # Left-button and right-button actions: move.
 # With the modifier held, the action works from anywhere inside a managed window.
 action1 = "move"
-# Dropping in the center of another tiled window: swap | stack.
-# Dropping near an edge of another tiled window inserts on that side.
+# Dropping on another tiled window (including the gaps and tab strips around it): swap | stack.
+# The whole target area uses this action unless the split modifier below is held.
 # Dropping near an edge of the dragged window's vacated tile moves it one step, like move_node,
-# toward sides with no window to drop onto. An edge that would put it back in place acts like the center.
+# toward sides with no window to drop onto; a nearby target wins over that nudge.
 drop_action = "swap"
+# Hold this modifier while dragging to turn the edge zones into insert/split targets.
+# Same syntax as `modifier`. When omitted, "shift" is used.
+split_modifier = "shift"
 # Edge-zone depth. Must be between 0.10 and 0.45; 0.25 leaves a 50% x 50% center.
+# Only used while the split modifier is held.
 drop_zone_fraction = 0.25
 # Show drop-intent feedback when preview rendering is available.
 preview = true

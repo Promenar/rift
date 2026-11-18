@@ -2209,6 +2209,7 @@ fn layout_events_defer_arrangement_during_drag_except_removal() {
             );
             reactor.drag_manager.actor.motion(crate::actor::drag::DragMotion {
                 point: CGPoint::new(frame.mid().x + 30.0, frame.mid().y),
+                split: false,
             });
         } else {
             reactor.drag_manager.actor.begin_native(source, Default::default());
@@ -2403,6 +2404,7 @@ fn cancelling_tiled_modifier_move_reconciles_layout() {
     );
     reactor.drag_manager.actor.motion(crate::actor::drag::DragMotion {
         point: CGPoint::new(frame.mid().x + 30.0, frame.mid().y),
+        split: false,
     });
     assert!(reactor.is_in_drag());
     let before = reactor.layout_update_count;
@@ -2423,6 +2425,7 @@ fn cancelling_tiled_modifier_move_reconciles_layout() {
     );
     reactor.drag_manager.actor.motion(crate::actor::drag::DragMotion {
         point: CGPoint::new(frame.mid().x + 30.0, frame.mid().y),
+        split: false,
     });
     let mut config = reactor.config.clone();
     config.settings.drag_drop.enabled = false;

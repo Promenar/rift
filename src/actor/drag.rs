@@ -18,7 +18,9 @@ pub use crate::model::drag::{
 use crate::sys::geometry::SameAs;
 use crate::sys::screen::SpaceId;
 
-const HYSTERESIS_POINTS: f64 = 8.0;
+const HYSTERESIS_POINTS: f64 = 6.0;
+/// 指针落在窗口外（缝隙、标签栏）时，该半径内归入最近窗口并堆叠。
+const SNAP_RADIUS_POINTS: f64 = 40.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MouseButton {
@@ -29,6 +31,8 @@ pub enum MouseButton {
 #[derive(Debug, Clone, Copy)]
 pub struct DragMotion {
     pub point: CGPoint,
+    /// Whether the configured split modifier is held for this sample.
+    pub split: bool,
 }
 
 /// Latest-value transport with at most one outstanding actor wake.
@@ -69,6 +73,8 @@ pub struct Session {
     pub scene: DragScene,
     target: TargetState,
     unavailable: Vec<(WindowId, DropZone, WindowDropAction)>,
+    /// The split modifier state from the latest pointer sample.
+    split_held: bool,
     pub kind: DragKind,
 }
 
@@ -113,6 +119,7 @@ impl Session {
             scene,
             target: TargetState::None,
             unavailable: Vec::new(),
+            split_held: false,
             kind,
         }
     }
@@ -239,6 +246,7 @@ impl DragActor {
                 &session.unavailable,
                 Some(session.source),
                 None,
+                session.split_held,
             );
             session.target = next.map_or(TargetState::None, TargetState::Candidate);
         }
@@ -274,6 +282,7 @@ impl DragActor {
             &session.unavailable,
             Some(session.source),
             None,
+            session.split_held,
         );
         session.target = next.map_or(TargetState::None, TargetState::Candidate);
         !matches!(session.target, TargetState::None)
@@ -429,6 +438,7 @@ impl DragActor {
         let home_preview_changed = contains(session.source.origin_frame, session.pointer, 0.0)
             != contains(session.source.origin_frame, motion.point, 0.0);
         session.pointer = motion.point;
+        session.split_held = motion.split;
         if session.kind == DragKind::ModifierMove {
             let dx = motion.point.x - session.anchor_point.x;
             let dy = motion.point.y - session.anchor_point.y;
@@ -458,6 +468,7 @@ impl DragActor {
                 &session.unavailable,
                 Some(session.source),
                 None,
+                session.split_held,
             )
         };
         let changed = next != session.target.intent();
@@ -571,23 +582,6 @@ pub fn classify_zone(frame: CGRect, point: CGPoint, fraction: f64) -> Option<Dro
     Some(nearest.1)
 }
 
-fn zone_frame(frame: CGRect, zone: DropZone, fraction: f64) -> CGRect {
-    let (x, y, width, height) = match zone {
-        DropZone::Center => (fraction, fraction, 1.0 - 2.0 * fraction, 1.0 - 2.0 * fraction),
-        DropZone::West => (0.0, 0.0, fraction, 1.0),
-        DropZone::East => (1.0 - fraction, 0.0, fraction, 1.0),
-        DropZone::North => (0.0, 0.0, 1.0, fraction),
-        DropZone::South => (0.0, 1.0 - fraction, 1.0, fraction),
-    };
-    CGRect::new(
-        CGPoint::new(
-            frame.origin.x + frame.size.width * x,
-            frame.origin.y + frame.size.height * y,
-        ),
-        objc2_core_foundation::CGSize::new(frame.size.width * width, frame.size.height * height),
-    )
-}
-
 pub fn resolve_action(zone: DropZone, center: MouseDropAction) -> WindowDropAction {
     match zone {
         DropZone::Center => center.into(),
@@ -606,7 +600,19 @@ pub fn hit_test(
     center: MouseDropAction,
     previous: Option<DropIntent>,
 ) -> Option<DropIntent> {
-    hit_test_available(scene, point, fraction, center, previous, &[], None, None)
+    hit_test_with_split(scene, point, fraction, center, previous, false)
+}
+
+/// Hit-test with an explicit split-modifier state.
+pub fn hit_test_with_split(
+    scene: &DragScene,
+    point: CGPoint,
+    fraction: f64,
+    center: MouseDropAction,
+    previous: Option<DropIntent>,
+    split: bool,
+) -> Option<DropIntent> {
+    hit_test_available(scene, point, fraction, center, previous, &[], None, None, split)
 }
 
 /// Projected scenes include the source for presentation; it is not a relative drop target.
@@ -633,6 +639,7 @@ pub fn hit_test_projected(
         &[],
         None,
         Some(source),
+        false,
     )
 }
 
@@ -645,115 +652,120 @@ fn hit_test_available(
     unavailable: &[(WindowId, DropZone, WindowDropAction)],
     source: Option<DragSource>,
     excluded: Option<WindowId>,
+    split: bool,
 ) -> Option<DropIntent> {
-    if !source.is_some_and(|source| contains(source.origin_frame, point, 0.0))
-        && let Some(previous) = previous
-        && let Some(target) = scene
-            .targets
-            .iter()
-            .find(|target| target.window == previous.window && Some(target.window) != excluded)
-    {
-        let retained = zone_frame(target.frame, previous.zone, fraction);
-        if contains(retained, point, HYSTERESIS_POINTS) {
-            let intent = DropIntent {
-                frame: target.frame,
-                action: previous.action,
-                ..previous
-            };
-            if !unavailable.contains(&(intent.window, intent.zone, intent.action)) {
-                return Some(intent);
+    let action_for = |zone: DropZone| {
+        scene.action_override.unwrap_or_else(|| {
+            if split && zone != DropZone::Center {
+                resolve_action(zone, center)
+            } else {
+                resolve_action(DropZone::Center, center)
             }
-        }
-    }
-    let intent_for = |target: &DragSceneTarget, point: CGPoint| {
-        let zone = classify_zone(target.frame, point, fraction)?;
+        })
+    };
+    let intent_for = |target: &DragSceneTarget, at: CGPoint| {
+        let zone = classify_zone(target.frame, at, fraction)?;
         Some(DropIntent {
             window: target.window,
             space: target.space,
             frame: target.frame,
             zone,
-            action: scene.action_override.unwrap_or_else(|| resolve_action(zone, center)),
+            action: action_for(zone),
         })
     };
+    let admissible =
+        |intent: &DropIntent| !unavailable.contains(&(intent.window, intent.zone, intent.action));
 
+    // Keep the previous target while the pointer stays on it, so small movements
+    // between adjacent targets do not flicker.
+    if let Some(previous) = previous
+        && let Some(target) = scene
+            .targets
+            .iter()
+            .find(|target| target.window == previous.window && Some(target.window) != excluded)
+        && contains(target.frame, point, HYSTERESIS_POINTS)
+        && !scene.targets.iter().any(|other| {
+            Some(other.window) != excluded
+                && other.window != target.window
+                && contains(other.frame, point, 0.0)
+        })
+        && let Some(intent) = intent_for(target, point)
+        && admissible(&intent)
+    {
+        return Some(intent);
+    }
+
+    // A window under the pointer always wins.
     for target in scene.targets.iter().filter(|target| Some(target.window) != excluded) {
         if contains(target.frame, point, 0.0)
             && let Some(intent) = intent_for(target, point)
-            && !unavailable.contains(&(intent.window, intent.zone, intent.action))
+            && admissible(&intent)
         {
             return Some(intent);
         }
     }
 
+    // Gaps and tab strips resolve to the nearest window within the snap radius and
+    // act as a centre drop, so they stack instead of splitting an edge.
+    let mut nearest: Option<(f64, usize, DropIntent)> = None;
+    for (order, target) in scene.targets.iter().enumerate() {
+        if Some(target.window) == excluded
+            || target.frame.size.width <= 0.0
+            || target.frame.size.height <= 0.0
+            || unavailable.iter().any(|(window, _, _)| *window == target.window)
+        {
+            continue;
+        }
+        let distance = distance_to_rect_squared(target.frame, point).sqrt();
+        if distance > SNAP_RADIUS_POINTS {
+            continue;
+        }
+        let zone = DropZone::Center;
+        let intent = DropIntent {
+            window: target.window,
+            space: target.space,
+            frame: target.frame,
+            zone,
+            action: action_for(zone),
+        };
+        if !admissible(&intent) {
+            continue;
+        }
+        let better = nearest.as_ref().is_none_or(|(best, best_order, _)| {
+            distance < *best || (distance == *best && order < *best_order)
+        });
+        if better {
+            nearest = Some((distance, order, intent));
+        }
+    }
+    if let Some((_, _, intent)) = nearest {
+        return Some(intent);
+    }
+
+    // Over the vacated tile with no target nearby: nudge one step toward a side
+    // that has no logical neighbor.
     if let Some(source) = source
         && let Some(space) = source.current_space
         && let Some(zone) = classify_zone(source.origin_frame, point, fraction)
-    {
-        if let (None, WindowDropAction::Insert(direction)) =
+        && let (None, WindowDropAction::Insert(direction)) =
             (scene.action_override, resolve_action(zone, center))
-            && !scene.source_neighbors[match direction {
-                Direction::Left => 0,
-                Direction::Right => 1,
-                Direction::Up => 2,
-                Direction::Down => 3,
-            }]
-            && !unavailable.contains(&(source.window, zone, WindowDropAction::Move(direction)))
-        {
-            return Some(DropIntent {
-                window: source.window,
-                space,
-                frame: source.origin_frame,
-                zone,
-                action: WindowDropAction::Move(direction),
-            });
-        }
-        return None;
+        && !scene.source_neighbors[match direction {
+            Direction::Left => 0,
+            Direction::Right => 1,
+            Direction::Up => 2,
+            Direction::Down => 3,
+        }]
+        && !unavailable.contains(&(source.window, zone, WindowDropAction::Move(direction)))
+    {
+        return Some(DropIntent {
+            window: source.window,
+            space,
+            frame: source.origin_frame,
+            zone,
+            action: WindowDropAction::Move(direction),
+        });
     }
-
-    let nearest = scene.targets.iter().enumerate().filter(|(_, target)| {
-        Some(target.window) != excluded
-            && target.frame.size.width > 0.0
-            && target.frame.size.height > 0.0
-    });
-    if unavailable.is_empty() {
-        let (_, target) = nearest.min_by(|(a_order, a), (b_order, b)| {
-            distance_to_rect_squared(a.frame, point)
-                .total_cmp(&distance_to_rect_squared(b.frame, point))
-                .then_with(|| a_order.cmp(b_order))
-        })?;
-        let clamped = CGPoint::new(
-            point.x.clamp(
-                target.frame.origin.x,
-                target.frame.origin.x + target.frame.size.width,
-            ),
-            point.y.clamp(
-                target.frame.origin.y,
-                target.frame.origin.y + target.frame.size.height,
-            ),
-        );
-        return intent_for(target, clamped);
-    }
-    nearest
-        .filter_map(|(order, target)| {
-            let clamped = CGPoint::new(
-                point.x.clamp(
-                    target.frame.origin.x,
-                    target.frame.origin.x + target.frame.size.width,
-                ),
-                point.y.clamp(
-                    target.frame.origin.y,
-                    target.frame.origin.y + target.frame.size.height,
-                ),
-            );
-            let intent = intent_for(target, clamped)?;
-            (!unavailable.contains(&(intent.window, intent.zone, intent.action))).then_some((
-                distance_to_rect_squared(target.frame, point),
-                order,
-                intent,
-            ))
-        })
-        .min_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)))
-        .map(|(_, _, intent)| intent)
+    None
 }
 
 fn distance_to_rect_squared(frame: CGRect, point: CGPoint) -> f64 {
@@ -820,7 +832,14 @@ mod tests {
         }
     }
     fn motion(actor: &mut DragActor, x: f64, y: f64) -> bool {
-        actor.motion(DragMotion { point: point(x, y) })
+        actor.motion(DragMotion {
+            point: point(x, y),
+            split: false,
+        })
+    }
+
+    fn motion_split(actor: &mut DragActor, x: f64, y: f64, split: bool) -> bool {
+        actor.motion(DragMotion { point: point(x, y), split })
     }
     fn native(tiled: bool, last_frame: CGRect, scene: DragScene) -> DragActor {
         let mut source = source(tiled);
@@ -861,20 +880,6 @@ mod tests {
     }
 
     #[test]
-    fn target_zones_keep_their_local_frames() {
-        let target = frame(10.0, 20.0, 200.0, 100.0);
-        for (zone, expected) in [
-            (DropZone::Center, frame(60.0, 45.0, 100.0, 50.0)),
-            (DropZone::West, frame(10.0, 20.0, 50.0, 100.0)),
-            (DropZone::East, frame(160.0, 20.0, 50.0, 100.0)),
-            (DropZone::North, frame(10.0, 20.0, 200.0, 25.0)),
-            (DropZone::South, frame(10.0, 95.0, 200.0, 25.0)),
-        ] {
-            assert_eq!(zone_frame(target, zone, 0.25), expected);
-        }
-    }
-
-    #[test]
     fn preview_inset_clamps_small_tiles() {
         let intent = hit_test(
             &scene(rect()),
@@ -902,6 +907,7 @@ mod tests {
             assert_eq!(
                 publisher.publish(DragMotion {
                     point: CGPoint::new(x as f64, 0.0),
+                    split: false,
                 }),
                 x == 0
             );
@@ -911,6 +917,7 @@ mod tests {
         assert!(!publisher.wake_queued());
         assert!(publisher.publish(DragMotion {
             point: CGPoint::new(1_000.0, 0.0),
+            split: false,
         }));
     }
 
@@ -919,7 +926,7 @@ mod tests {
         let target_frame = frame(200.0, 0.0, 100.0, 100.0);
         let moved = frame(10.0, 0.0, 200.0, 100.0);
         let mut actor = native(true, moved, scene(target_frame));
-        assert!(motion(&mut actor, 201.0, 50.0));
+        assert!(motion_split(&mut actor, 201.0, 50.0, true));
         let intent = actor.intent().unwrap();
         assert_eq!(intent.action, WindowDropAction::Insert(Direction::Left));
         actor.set_preview(intent, Some(target_frame));
@@ -930,6 +937,64 @@ mod tests {
         assert_eq!(commit.source.window, w(1));
         assert_eq!(commit.target.unwrap().intent.window, w(2));
         assert!(actor.finish(MouseButton::Left).is_none());
+    }
+
+    #[test]
+    fn gaps_edges_and_tab_strips_use_the_center_action_unless_split_is_held() {
+        let target_frame = frame(200.0, 100.0, 200.0, 100.0);
+        let scene = scene(target_frame);
+        // Gap between the source tile and the target.
+        let gap =
+            hit_test(&scene, point(185.0, 150.0), 0.25, MouseDropAction::Stack, None).unwrap();
+        assert_eq!((gap.window, gap.zone), (w(2), DropZone::Center));
+        assert_eq!(gap.action, WindowDropAction::Stack);
+        // Above the target, where a stack's tab strip sits.
+        let strip =
+            hit_test(&scene, point(300.0, 80.0), 0.25, MouseDropAction::Stack, None).unwrap();
+        assert_eq!((strip.window, strip.zone), (w(2), DropZone::Center));
+        assert_eq!(strip.action, WindowDropAction::Stack);
+        // Inside the edge band: still the centre action without the split modifier.
+        let edge =
+            hit_test(&scene, point(201.0, 150.0), 0.25, MouseDropAction::Stack, None).unwrap();
+        assert_eq!(
+            (edge.zone, edge.action),
+            (DropZone::West, WindowDropAction::Stack)
+        );
+        // The split modifier turns the same point into an insert.
+        let split = hit_test_with_split(
+            &scene,
+            point(201.0, 150.0),
+            0.25,
+            MouseDropAction::Stack,
+            None,
+            true,
+        )
+        .unwrap();
+        assert_eq!(split.action, WindowDropAction::Insert(Direction::Left));
+    }
+
+    #[test]
+    fn snap_radius_limits_the_nearest_target() {
+        let scene = scene(frame(400.0, 0.0, 100.0, 100.0));
+        assert!(
+            hit_test(&scene, point(100.0, 50.0), 0.25, MouseDropAction::Stack, None).is_none(),
+            "a window more than the snap radius away is not a drop target"
+        );
+    }
+
+    #[test]
+    fn split_modifier_changes_the_action_without_moving_the_pointer() {
+        let target_frame = frame(200.0, 0.0, 200.0, 100.0);
+        let mut actor = native(true, rect(), scene(target_frame));
+        motion(&mut actor, 201.0, 50.0);
+        assert_eq!(actor.intent().unwrap().action, WindowDropAction::Swap);
+        assert!(motion_split(&mut actor, 201.0, 50.0, true));
+        assert_eq!(
+            actor.intent().unwrap().action,
+            WindowDropAction::Insert(Direction::Left)
+        );
+        assert!(motion_split(&mut actor, 201.0, 50.0, false));
+        assert_eq!(actor.intent().unwrap().action, WindowDropAction::Swap);
     }
 
     #[test]
@@ -974,34 +1039,27 @@ mod tests {
     }
 
     #[test]
-    fn source_tile_edge_is_preview_only_until_pointer_enters_neighbor() {
-        let mut drag_scene = scene(frame(200.0, 0.0, 200.0, 100.0));
-        drag_scene.source_neighbors[1] = true;
+    fn source_tile_edge_yields_to_a_nearby_target() {
+        let drag_scene = scene(frame(200.0, 0.0, 200.0, 100.0));
+        // Still over the vacated tile, but within the snap radius of the neighbour:
+        // the neighbour wins and the drop stacks instead of nudging.
         let mut actor = native(true, rect(), drag_scene.clone());
-        // Home is preview-only; mouse-up has no validated operation to commit.
         motion(&mut actor, 199.0, 50.0);
-        assert!(actor.intent().is_none());
-        assert!(actor.preview_target().is_some());
-        assert!(actor.target().is_none());
-        assert!(actor.finish(MouseButton::Left).unwrap().target.is_none());
-
-        let mut actor = native(true, rect(), drag_scene);
-        motion(&mut actor, 201.0, 50.0);
-        assert_eq!(
-            actor.intent().unwrap().action,
-            WindowDropAction::Insert(Direction::Left)
-        );
         let intent = actor.intent().unwrap();
+        assert_eq!(intent.window, w(2));
+        assert_eq!(intent.action, WindowDropAction::Swap);
         actor.set_preview(intent, Some(rect()));
-        assert!(!motion(&mut actor, 225.0, 50.0));
+        assert!(actor.target().is_some());
         assert_eq!(
-            actor.intent().unwrap().action,
-            WindowDropAction::Insert(Direction::Left)
+            actor.finish(MouseButton::Left).unwrap().target.unwrap().intent.window,
+            w(2)
         );
-        assert!(motion(&mut actor, 199.0, 50.0));
+
+        // Far from every neighbour there is no drop target at all.
+        let far = scene(frame(600.0, 400.0, 100.0, 100.0));
+        let mut actor = native(true, rect(), far);
+        motion(&mut actor, 100.0, 50.0);
         assert!(actor.intent().is_none());
-        assert_eq!(actor.preview_target().unwrap().preview_area, rect());
-        assert!(actor.finish(MouseButton::Left).unwrap().target.is_none());
     }
 
     #[test]
@@ -1043,11 +1101,11 @@ mod tests {
         let nearest = w(2);
         let fallback = w(3);
         let scene = scene_with(vec![
-            target(2, frame(220.0, 0.0, 200.0, 100.0)),
-            target(3, frame(440.0, 0.0, 200.0, 100.0)),
+            target(2, frame(220.0, 0.0, 100.0, 100.0)),
+            target(3, frame(340.0, 0.0, 100.0, 100.0)),
         ]);
         let mut actor = native(true, rect(), scene);
-        motion(&mut actor, 230.0, 50.0);
+        motion(&mut actor, 330.0, 50.0);
         let intent = actor.intent().unwrap();
         assert_eq!(intent.window, nearest);
         assert!(actor.set_preview(intent, None));
@@ -1058,9 +1116,9 @@ mod tests {
     fn equidistant_outside_targets_keep_scene_order() {
         let scene = scene_with(vec![
             target(2, frame(0.0, 0.0, 100.0, 100.0)),
-            target(3, frame(200.0, 0.0, 100.0, 100.0)),
+            target(3, frame(140.0, 0.0, 100.0, 100.0)),
         ]);
-        let point = point(150.0, 50.0);
+        let point = point(120.0, 50.0);
         assert_eq!(
             hit_test(&scene, point, 0.25, MouseDropAction::Swap, None).unwrap().window,
             w(2)
@@ -1084,7 +1142,7 @@ mod tests {
         actor.set_preview(intent, Some(rect()));
         assert!(actor.target().is_some());
 
-        let moved = frame(300.0, 0.0, 200.0, 100.0);
+        let moved = frame(230.0, 0.0, 200.0, 100.0);
         actor.replace_scene(scene(moved));
         assert!(actor.target().is_none());
         let moved_intent = actor.intent().unwrap();

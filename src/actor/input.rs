@@ -925,10 +925,14 @@ impl Input {
                     .unwrap_or_else(|| CGEvent::location(Some(event)));
                 let captured = self.state.borrow().captured_button == Some(button);
                 if captured || self.native_motion_active.load(Ordering::Acquire) {
-                    let publisher = &self.drag_motion_publisher;
-                    if publisher.publish(crate::actor::drag::DragMotion { point }) {
-                        self.events_tx.send(Event::DragMotionPending(publisher.clone()));
-                    }
+                    let split = {
+                        let state = self.state.borrow();
+                        mouse_modifier_held(
+                            state.mouse_settings.split_modifier,
+                            CGEvent::flags(Some(event)),
+                        )
+                    };
+                    self.publish_drag_sample(point, split);
                 }
                 !captured
             }
@@ -1105,6 +1109,14 @@ impl Input {
         Some(target)
     }
 
+    /// Publish a drag sample. The newest sample wins; at most one reactor wake is queued.
+    fn publish_drag_sample(&self, point: CGPoint, split: bool) {
+        let publisher = &self.drag_motion_publisher;
+        if publisher.publish(crate::actor::drag::DragMotion { point, split }) {
+            self.events_tx.send(Event::DragMotionPending(publisher.clone()));
+        }
+    }
+
     #[inline]
     fn admit_mouse_move(&self, event: &CGEvent) -> Option<CGPoint> {
         let timestamp = CGEvent::timestamp(Some(event));
@@ -1132,6 +1144,13 @@ impl Input {
         // rather than the previous event's modifier state.
         let flags = CGEvent::flags(Some(event));
         state.current_flags = flags;
+        if event_type == CGEventType::FlagsChanged
+            && (state.captured_button.is_some()
+                || self.native_motion_active.load(Ordering::Acquire))
+        {
+            let split = mouse_modifier_held(state.mouse_settings.split_modifier, flags);
+            self.publish_drag_sample(CGEvent::location(Some(event)), split);
+        }
         if let Some(mut hotkey) = self.overview_hotkey.get() {
             if event_type == CGEventType::KeyUp && hotkey.trigger == key_code_opt {
                 hotkey.trigger = None;

@@ -932,21 +932,36 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
     let mut section = Section::new(&ui, "拖放");
 
     for field in DragDropSettings::fields() {
-        let row = if field.key == "modifier" {
-            let row = f.text(
-                field.title,
-                |s| s.settings.drag_drop.modifier.to_string(),
-                |s, value| {
-                    s.settings.drag_drop.modifier =
-                        value.parse().map_err(|error: anyhow::Error| error.to_string())?;
+        let row = match field.key {
+            "modifier" => {
+                let row = f.text(
+                    field.title,
+                    |s| s.settings.drag_drop.modifier.to_string(),
+                    |s, value| {
+                        s.settings.drag_drop.modifier =
+                            value.parse().map_err(|error: anyhow::Error| error.to_string())?;
 
-                    Ok(())
-                },
-            );
+                        Ok(())
+                    },
+                );
 
-            Some(f.schema_metadata(row, field, |s| &s.settings.drag_drop))
-        } else {
-            f.schema_field(field, |s| &s.settings.drag_drop, |s| &mut s.settings.drag_drop)
+                Some(f.schema_metadata(row, field, |s| &s.settings.drag_drop))
+            }
+            "split_modifier" => {
+                let row = f.text(
+                    field.title,
+                    |s| s.settings.drag_drop.split_modifier.to_string(),
+                    |s, value| {
+                        s.settings.drag_drop.split_modifier =
+                            value.parse().map_err(|error: anyhow::Error| error.to_string())?;
+
+                        Ok(())
+                    },
+                );
+
+                Some(f.schema_metadata(row, field, |s| &s.settings.drag_drop))
+            }
+            _ => f.schema_field(field, |s| &s.settings.drag_drop, |s| &mut s.settings.drag_drop),
         };
 
         if let Some(row) = row {

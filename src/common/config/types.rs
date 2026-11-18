@@ -790,7 +790,7 @@ pub struct DragDropSettings {
     /// 或 `Ctrl + Alt + Shift + Meta` 之类的组合（`fn` 不能参与组合）。
     /// `AltRight` 等左右写法匹配任意一侧；单修饰键按住即生效，组合需完全匹配。
     #[serde(default)]
-    #[setting(custom, order = 1)]
+    #[setting(label = "拖拽修饰键", custom, order = 1)]
     pub modifier: MouseModifier,
     /// 按住指定修饰键时，鼠标左键执行的操作。
     #[serde(default)]
@@ -805,9 +805,15 @@ pub struct DragDropSettings {
     #[setting(label = "放到中心时", choices, order = 4)]
     pub drop_action: MouseDropAction,
     /// 各边缘区域占目标窗口尺寸的比例。有效范围 `0.10..=0.45`，默认 `0.25`。
+    /// 仅在按住“切分修饰键”时用于插入/切分。
     #[serde(default = "default_drop_zone_fraction")]
     #[setting(label = "中心放置区域 (%)", scale = 100.0, order = 5)]
     pub drop_zone_fraction: f64,
+    /// 拖拽时按住此修饰键，边缘区域才会插入/切分；不按时整块目标区域都执行
+    /// “放到中心时”的动作。
+    #[serde(default = "default_split_modifier")]
+    #[setting(label = "切分修饰键", custom, order = 6)]
+    pub split_modifier: MouseModifier,
     /// 为待放置操作显示半透明圆角 WindowServer 覆盖层。
     /// 仅当目标平铺区域或放置区域变化时更新。
     #[serde(default = "yes")]
@@ -825,6 +831,7 @@ impl Default for DragDropSettings {
             action2: MouseAction::None,
             drop_action: MouseDropAction::Swap,
             drop_zone_fraction: default_drop_zone_fraction(),
+            split_modifier: default_split_modifier(),
             preview: true,
         }
     }
@@ -1864,6 +1871,8 @@ impl InnerGaps {
 fn yes() -> bool { true }
 
 fn is_true(value: &bool) -> bool { *value }
+
+fn default_split_modifier() -> MouseModifier { MouseModifier::Keys(Modifiers::SHIFT) }
 
 fn default_stack_offset() -> f64 { 40.0 }
 
