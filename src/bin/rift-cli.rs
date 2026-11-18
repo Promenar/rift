@@ -97,6 +97,8 @@ enum QueryCommands {
     Window { window_id: String },
     /// List running applications
     Applications,
+    /// List tracked windows with the fields app rules match on
+    RuleWindows,
     /// Get layout state and normalized container tree for a space
     Layout {
         #[command(flatten)]
@@ -647,6 +649,7 @@ fn build_query_request(query: QueryCommands) -> Result<RiftRequest, String> {
             Ok(RiftRequest::GetWindowInfo { window_id })
         }
         QueryCommands::Applications => Ok(RiftRequest::GetApplications),
+        QueryCommands::RuleWindows => Ok(RiftRequest::PreviewAppRules { rules: Vec::new() }),
         QueryCommands::Layout {
             scope: SpaceScopeArgs { space_id, display },
             workspace_id,
