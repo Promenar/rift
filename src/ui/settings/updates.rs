@@ -29,9 +29,7 @@ fn latest() -> Result {
             "https://api.github.com/repos/acsandmann/rift/releases/latest",
         ])
         .output()
-        .map_err(|_| {
-            "无法连接。请检查网络连接后重试。".to_string()
-        })?;
+        .map_err(|_| "无法连接。请检查网络连接后重试。".to_string())?;
     if !response.status.success() {
         return Err("无法检查更新。请检查网络连接后重试。".into());
     }

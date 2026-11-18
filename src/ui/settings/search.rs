@@ -128,31 +128,181 @@ fn describe(entry: &Draft) -> String {
 
 /// Destinations without schema fields: pages, sections, and handcrafted editors.
 const MANUAL: &[(Category, Option<LayoutMode>, &str, &str, &str)] = &[
-    (Layouts, None, "间距", "屏幕边缘", "Screen edges 屏幕边缘 gaps gap margin padding outer edges spacing"),
-    (Layouts, None, "间距", "分别设置各边缘", "Set each edge separately 分别设置 gaps gap top bottom left right margin padding outer"),
-    (Layouts, None, "间距", "水平", "Horizontal 水平 gaps gap between windows inner horizontal spacing"),
-    (Layouts, None, "间距", "垂直", "Vertical 垂直 gaps gap between windows inner vertical spacing"),
-    (Layouts, None, "显示器覆盖设置", "显示器覆盖设置", "Display overrides 显示器覆盖设置 monitor screen connected per display override gaps spacing widths add display uuid"),
-    (Workspaces, None, "工作区", "虚拟工作区", "Virtual Workspaces 虚拟工作区 desktops spaces enabled"),
-    (Rules, None, "规则", "应用规则", "App rules 应用规则 application bundle identifier manage ignore floating window title match workspace assign desktop"),
-    (Keyboard, None, "键盘", "键盘快捷键", "Keyboard shortcuts 键盘快捷键 keys hotkeys keybindings bindings commands"),
-    (Keyboard, None, "键盘", "快捷键集", "Shortcut set 快捷键集 keymap keybinding mode default"),
-    (Keyboard, None, "键盘", "可复用修饰键组合", "Reusable modifier combinations 可复用修饰键组合 command option control shift modifiers"),
-    (Mouse, None, "鼠标与触控板", "工作区轻扫", "Workspace swipes 工作区轻扫 trackpad gestures fingers swipe sensitivity haptic"),
-    (Mouse, None, "鼠标与触控板", "滚动布局手势", "Scrolling layout gestures 滚动布局手势 trackpad gestures fingers swipe scrolling niri"),
-    (Mouse, None, "鼠标与触控板", "拖放", "Drag & Drop 拖放 mouse modifier move resize swap stack drop"),
-    (Mouse, None, "鼠标与触控板", "指针移动", "Pointer movement 指针移动 mouse cursor movement"),
-    (Overview, None, "总览", "总览", "Overview 总览 window previews fade transitions"),
-    (StackTabs, None, "堆叠标签", "堆叠标签", "Stack Tabs 堆叠标签 stackline indicator color position thickness interaction"),
-    (Advanced, None, "高级", "启动命令", "Startup commands 启动命令 launch run shell exec"),
-    (Advanced, None, "高级", "自动聚焦排除列表", "Autofocus blacklist 自动聚焦排除列表 focus exclude ignore app"),
-    (Advanced, None, "高级", "外部编辑后重新载入配置", "Reload config when edited externally 外部编辑后重新载入配置 configuration file automatic reload toml"),
-    (Advanced, None, "高级", "配置文件", "Configuration file 配置文件 open config path toml reload"),
-    (About, None, "关于", "检查更新…", "Check for Updates 检查更新 version latest release update"),
-    (About, None, "关于", "文档", "Documentation 文档 docs help guide manual"),
-    (About, None, "关于", "Matrix 房间", "Matrix Room Matrix 房间 community chat discussion support"),
-    (About, None, "关于", "发行说明", "Release Notes 发行说明 changelog version changes"),
-    (About, None, "关于", "赞助 Rift", "Sponsor Rift 赞助 donate support sponsorship"),
+    (
+        Layouts,
+        None,
+        "间距",
+        "屏幕边缘",
+        "Screen edges 屏幕边缘 gaps gap margin padding outer edges spacing",
+    ),
+    (
+        Layouts,
+        None,
+        "间距",
+        "分别设置各边缘",
+        "Set each edge separately 分别设置 gaps gap top bottom left right margin padding outer",
+    ),
+    (
+        Layouts,
+        None,
+        "间距",
+        "水平",
+        "Horizontal 水平 gaps gap between windows inner horizontal spacing",
+    ),
+    (
+        Layouts,
+        None,
+        "间距",
+        "垂直",
+        "Vertical 垂直 gaps gap between windows inner vertical spacing",
+    ),
+    (
+        Layouts,
+        None,
+        "显示器覆盖设置",
+        "显示器覆盖设置",
+        "Display overrides 显示器覆盖设置 monitor screen connected per display override gaps spacing widths add display uuid",
+    ),
+    (
+        Workspaces,
+        None,
+        "工作区",
+        "虚拟工作区",
+        "Virtual Workspaces 虚拟工作区 desktops spaces enabled",
+    ),
+    (
+        Rules,
+        None,
+        "规则",
+        "应用规则",
+        "App rules 应用规则 application bundle identifier manage ignore floating window title match workspace assign desktop",
+    ),
+    (
+        Keyboard,
+        None,
+        "键盘",
+        "键盘快捷键",
+        "Keyboard shortcuts 键盘快捷键 keys hotkeys keybindings bindings commands",
+    ),
+    (
+        Keyboard,
+        None,
+        "键盘",
+        "快捷键集",
+        "Shortcut set 快捷键集 keymap keybinding mode default",
+    ),
+    (
+        Keyboard,
+        None,
+        "键盘",
+        "可复用修饰键组合",
+        "Reusable modifier combinations 可复用修饰键组合 command option control shift modifiers",
+    ),
+    (
+        Mouse,
+        None,
+        "鼠标与触控板",
+        "工作区轻扫",
+        "Workspace swipes 工作区轻扫 trackpad gestures fingers swipe sensitivity haptic",
+    ),
+    (
+        Mouse,
+        None,
+        "鼠标与触控板",
+        "滚动布局手势",
+        "Scrolling layout gestures 滚动布局手势 trackpad gestures fingers swipe scrolling niri",
+    ),
+    (
+        Mouse,
+        None,
+        "鼠标与触控板",
+        "拖放",
+        "Drag & Drop 拖放 mouse modifier move resize swap stack drop",
+    ),
+    (
+        Mouse,
+        None,
+        "鼠标与触控板",
+        "指针移动",
+        "Pointer movement 指针移动 mouse cursor movement",
+    ),
+    (
+        Overview,
+        None,
+        "总览",
+        "总览",
+        "Overview 总览 window previews fade transitions",
+    ),
+    (
+        StackTabs,
+        None,
+        "堆叠标签",
+        "堆叠标签",
+        "Stack Tabs 堆叠标签 stackline indicator color position thickness interaction",
+    ),
+    (
+        Advanced,
+        None,
+        "高级",
+        "启动命令",
+        "Startup commands 启动命令 launch run shell exec",
+    ),
+    (
+        Advanced,
+        None,
+        "高级",
+        "自动聚焦排除列表",
+        "Autofocus blacklist 自动聚焦排除列表 focus exclude ignore app",
+    ),
+    (
+        Advanced,
+        None,
+        "高级",
+        "外部编辑后重新载入配置",
+        "Reload config when edited externally 外部编辑后重新载入配置 configuration file automatic reload toml",
+    ),
+    (
+        Advanced,
+        None,
+        "高级",
+        "配置文件",
+        "Configuration file 配置文件 open config path toml reload",
+    ),
+    (
+        About,
+        None,
+        "关于",
+        "检查更新…",
+        "Check for Updates 检查更新 version latest release update",
+    ),
+    (
+        About,
+        None,
+        "关于",
+        "文档",
+        "Documentation 文档 docs help guide manual",
+    ),
+    (
+        About,
+        None,
+        "关于",
+        "Matrix 房间",
+        "Matrix Room Matrix 房间 community chat discussion support",
+    ),
+    (
+        About,
+        None,
+        "关于",
+        "发行说明",
+        "Release Notes 发行说明 changelog version changes",
+    ),
+    (
+        About,
+        None,
+        "关于",
+        "赞助 Rift",
+        "Sponsor Rift 赞助 donate support sponsorship",
+    ),
 ];
 
 // Schema registration supplies navigation context, not duplicate field lists.
@@ -185,20 +335,8 @@ fn catalog() -> &'static [Entry] {
         append::<Settings>(&mut out, "advanced", Advanced, None, "高级");
         append::<Settings>(&mut out, "pointer", Mouse, None, "鼠标与触控板 › 焦点");
         append::<VirtualWorkspaceSettings>(&mut out, "", Workspaces, None, "显示器覆盖设置");
-        append::<GestureSettings>(
-            &mut out,
-            "main",
-            Mouse,
-            None,
-            "鼠标与触控板 › 工作区轻扫",
-        );
-        append::<GestureSettings>(
-            &mut out,
-            "advanced",
-            Mouse,
-            None,
-            "鼠标与触控板 › 高级轻扫设置",
-        );
+        append::<GestureSettings>(&mut out, "main", Mouse, None, "鼠标与触控板 › 工作区轻扫");
+        append::<GestureSettings>(&mut out, "advanced", Mouse, None, "鼠标与触控板 › 高级轻扫设置");
         append::<ScrollingGestureSettings>(
             &mut out,
             "",
@@ -230,7 +368,13 @@ fn catalog() -> &'static [Entry] {
             Some(LayoutMode::Traditional),
             "布局 › 传统平铺",
         );
-        append::<BspLayoutSettings>(&mut out, "", Layouts, Some(LayoutMode::Bsp), "布局 › 二分平铺");
+        append::<BspLayoutSettings>(
+            &mut out,
+            "",
+            Layouts,
+            Some(LayoutMode::Bsp),
+            "布局 › 二分平铺",
+        );
         append::<StackSettings>(&mut out, "", Layouts, Some(LayoutMode::Stack), "布局 › 堆叠");
         append::<MasterStackSettings>(
             &mut out,

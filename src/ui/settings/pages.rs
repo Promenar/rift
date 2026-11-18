@@ -68,12 +68,7 @@ pub(super) fn build(ui: Ui, model: &Rc<Model>, id: Category) -> Page {
 
 fn general(ui: Ui, model: &Rc<Model>) -> Page {
     let mut f = FormBuilder::new(ui, model);
-    let section = f.schema_section(
-        "窗口行为",
-        "general",
-        |s| &s.settings,
-        |s| &mut s.settings,
-    );
+    let section = f.schema_section("窗口行为", "general", |s| &s.settings, |s| &mut s.settings);
     f.finish(SettingsPage::new(&ui, "").section(section))
 }
 
@@ -158,8 +153,7 @@ fn about_identity(ui: &Ui) -> VStack {
 }
 
 fn about_updates(ui: &Ui, env: &Rc<Env>) -> Section {
-    let status =
-        Rc::new(Label::new(ui, "尚未检查").wrapping().color(&cgs::style::Color::label()));
+    let status = Rc::new(Label::new(ui, "尚未检查").wrapping().color(&cgs::style::Color::label()));
     status.accessibility_label("更新状态");
     let icon = Rc::new(ImageView::symbol(ui, "arrow.triangle.2.circlepath").unwrap());
     icon.width(16.0);
@@ -231,11 +225,7 @@ fn about_updates(ui: &Ui, env: &Rc<Env>) -> Section {
 
 fn about_resources(ui: &Ui) -> Section {
     const RESOURCES: [(&str, &str, &str); 4] = [
-        (
-            "文档",
-            "book",
-            "https://acsandmann.github.io/rift-docs/",
-        ),
+        ("文档", "book", "https://acsandmann.github.io/rift-docs/"),
         (
             "发行说明",
             "clock.arrow.circlepath",
@@ -568,9 +558,7 @@ type Following = (&'static str, &'static str, fn(&str) -> String);
 const SHARED_POSITION: Following = ("使用共享设置", "共享", |value| {
     format!("共享设置：{value}")
 });
-const AUTOMATIC: Following = ("自动", "自动", |value| {
-    format!("{value}，随主区域适配")
-});
+const AUTOMATIC: Following = ("自动", "自动", |value| format!("{value}，随主区域适配"));
 
 pub(super) fn layout_options(ui: Ui, model: &Rc<Model>, mode: LayoutMode) -> Page {
     let mut f = FormBuilder::new(ui, model);
@@ -737,16 +725,16 @@ fn aspect_ratio(f: &mut FormBuilder) -> SettingsRow {
     }));
     field.accessibility_label("宽高比");
     let model = f.model.clone();
-    let mode = Rc::new(Popup::new(&ui).sections([["自动"], ["自定"]]).on_change(
-        move |index| {
+    let mode = Rc::new(
+        Popup::new(&ui).sections([["自动"], ["自定"]]).on_change(move |index| {
             let custom = model.upgrade().and_then(|model| ratio(&model.source.borrow()));
             change(if index == 0 {
                 None
             } else {
                 custom.or(Some(SIXTEEN_NINE))
             });
-        },
-    ));
+        }),
+    );
     mode.accessibility_label("单窗口宽高比");
     mode.set_item_badge(0, Some("默认"));
     let value = field.unit_field(&ui, ": 1");
@@ -768,9 +756,8 @@ fn aspect_ratio(f: &mut FormBuilder) -> SettingsRow {
         field.set_value(ratio(s).unwrap_or(SIXTEEN_NINE))
     });
     let control = HStack::new(&ui).spacing(10.0).push(mode).push(custom).keep(field);
-    f.row("单窗口宽高比", control, message).tooltip(
-        "自动会用单个窗口填满可用空间；自定则保持固定宽高比。",
-    )
+    f.row("单窗口宽高比", control, message)
+        .tooltip("自动会用单个窗口填满可用空间；自定则保持固定宽高比。")
 }
 
 /// Scrolling’s width presets as chips, in percent of the screen width.
@@ -923,8 +910,8 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
         |s| &mut s.settings.gestures,
     );
     page = page.section(section.content(Disclosure::new(&ui, "高级轻扫设置", tuning)));
-    let mut section = Section::new(&ui, "滚动布局手势")
-        .description("这些手势用于导航滚动布局条带。");
+    let mut section =
+        Section::new(&ui, "滚动布局手势").description("这些手势用于导航滚动布局条带。");
     let mut tuning = Section::new(&ui, "");
     for field in ScrollingGestureSettings::fields() {
         let row = f.schema_field(
@@ -940,8 +927,7 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
             }
         }
     }
-    page =
-        page.section(section.content(Disclosure::new(&ui, "高级滚动设置", tuning)));
+    page = page.section(section.content(Disclosure::new(&ui, "高级滚动设置", tuning)));
 
     let mut section = Section::new(&ui, "拖放");
 
@@ -981,11 +967,7 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
         |s, v| s.settings.horizontal_mouse_warp = v,
     ));
     page = page.section(section);
-    page = page.section(Disclosure::new(
-        &ui,
-        "高级聚焦设置",
-        focus_suspend(&mut f),
-    ));
+    page = page.section(Disclosure::new(&ui, "高级聚焦设置", focus_suspend(&mut f)));
     f.finish(page)
 }
 

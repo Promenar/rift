@@ -1241,11 +1241,7 @@ pub struct ScrollingLayoutSettings {
     /// 是否对滚动布局中的窗口移动播放动画。
     /// 强烈建议保持启用。
     #[serde(default = "default_scrolling_animate")]
-    #[setting(
-        label = "导航动画",
-        custom,
-        aliases = "animation transitions motion"
-    )]
+    #[setting(label = "导航动画", custom, aliases = "animation transitions motion")]
     pub animate: Option<bool>,
     /// 当前列的默认宽度，占屏幕宽度的比例。
     #[serde(default = "default_scrolling_column_width_ratio")]

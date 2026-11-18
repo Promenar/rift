@@ -28,15 +28,7 @@ use arguments::*;
 use management::*;
 
 /// Page sections, in order; actions without a template are listed last.
-const SECTIONS: [&str; 7] = [
-    "窗口",
-    "焦点",
-    "工作区",
-    "显示器",
-    "布局",
-    "总览",
-    "Rift",
-];
+const SECTIONS: [&str; 7] = ["窗口", "焦点", "工作区", "显示器", "布局", "总览", "Rift"];
 const OTHER: usize = 6;
 
 fn inline_message(ui: &Ui) -> Rc<ValidationMessage> { Style::validation(ui) }
@@ -388,8 +380,7 @@ impl Shortcuts {
                 return Some(message);
             }
             let Some(key) = recorded_key(candidate) else {
-                let message =
-                    "Rift 无法分配此按键。请选择其他按键组合。".to_string();
+                let message = "Rift 无法分配此按键。请选择其他按键组合。".to_string();
                 report(&conflict_error, &Err(message.clone()));
                 return Some(message);
             };
@@ -415,10 +406,7 @@ impl Shortcuts {
                 .map(|(_, cmd)| title(cmd, &source, &model.env.displays.borrow()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let message = format!(
-                "{} 已被 {names} 使用。现有快捷键未作更改。",
-                candidate
-            );
+            let message = format!("{} 已被 {names} 使用。现有快捷键未作更改。", candidate);
             drop(source);
             report(&conflict_error, &Err(message.clone()));
             let (recorder, weak_panel, error) = (
@@ -1051,12 +1039,11 @@ impl Shortcuts {
             Some(finished),
         );
         let page = Rc::downgrade(self);
-        let cancel =
-            Button::new(&ui, "取消").push().key_equivalent("\u{1b}").on_click(move || {
-                if let Some(page) = page.upgrade() {
-                    page.close_editor();
-                }
-            });
+        let cancel = Button::new(&ui, "取消").push().key_equivalent("\u{1b}").on_click(move || {
+            if let Some(page) = page.upgrade() {
+                page.close_editor();
+            }
+        });
         let feedback =
             cgs::settings::ShortcutEditor::feedback(&ui, parameter_error, message, conflicts);
         let content =
@@ -1198,10 +1185,7 @@ pub(super) fn keyboard(ui: Ui, model: &Rc<Model>) -> Page {
         advanced: RefCell::new(None),
         welcome: Rc::new(Style::welcome_container(&ui)),
         welcome_defaults: Rc::new(HStack::new(&ui)),
-        empty: Style::empty(
-            &ui,
-            "没有匹配的快捷键。请尝试其他操作或按键组合。",
-        ),
+        empty: Style::empty(&ui, "没有匹配的快捷键。请尝试其他操作或按键组合。"),
     });
     *owner.borrow_mut() = Rc::downgrade(&page);
     page.empty.set_hidden(true);
@@ -1413,18 +1397,12 @@ mod tests {
         let resize = layout(L::ResizeWindowBy { amount: 50.0 });
         assert_eq!(super::title(&resize, s, &[]), "调整窗口尺寸 50");
         let sequence = WmCommand::Sequence(vec![s.keys["Alt + H"].clone(), resize]);
-        assert_eq!(
-            super::title(&sequence, s, &[]),
-            "聚焦窗口 左 → 调整窗口尺寸 50"
-        );
+        assert_eq!(super::title(&sequence, s, &[]), "聚焦窗口 左 → 调整窗口尺寸 50");
         // Commands without a template show, and edit, as their TOML value.
         let save = reactor(R::SaveLayout {
             path: "/tmp/layout.json".into(),
         });
-        assert_eq!(
-            super::title(&save, s, &[]),
-            "保存布局到文件 /tmp/layout.json"
-        );
+        assert_eq!(super::title(&save, s, &[]), "保存布局到文件 /tmp/layout.json");
         for command in actions().iter().map(|(_, _, c)| c).chain([&save, &sequence]) {
             if *command != WmCommand::Sequence(Vec::new()) {
                 assert_eq!(parse_toml(&toml_text(command)).as_ref(), Ok(command));

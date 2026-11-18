@@ -327,11 +327,7 @@ pub(super) fn raw_parameters(cmd: &WmCommand) -> bool {
 
 pub(super) fn summary(cmd: &WmCommand, source: &ConfigSource, displays: &[ScreenInfo]) -> String {
     if let Some(options) = floating_options(cmd) {
-        let placement = if options.center {
-            "Centered"
-        } else {
-            "原位"
-        };
+        let placement = if options.center { "Centered" } else { "原位" };
         let size = match options.size {
             None => "原始尺寸".into(),
             Some(rift_protocol::FloatingWindowSize::Preset(_)) => "智能尺寸".into(),

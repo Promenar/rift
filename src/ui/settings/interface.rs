@@ -280,10 +280,7 @@ pub(super) fn overview(ui: Ui, model: &Rc<Model>) -> Page {
             .section(visibility)
             .section(recording)
             .section(transitions.row(duration))
-            .section(Caption::new(
-                &ui,
-                "更改会立即保存，并在重新启动 Rift 后生效。",
-            )),
+            .section(Caption::new(&ui, "更改会立即保存，并在重新启动 Rift 后生效。")),
     )
 }
 

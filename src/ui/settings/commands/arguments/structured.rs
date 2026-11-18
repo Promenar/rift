@@ -273,22 +273,18 @@ pub(super) fn editor(
             };
             let unresolved = {
                 let mut invalid = invalid.borrow_mut();
-                invalid[index] = parsed
-                    .as_ref()
-                    .err()
-                    .map(|_| format!("请为 {} 输入有效值。", field.label));
+                invalid[index] =
+                    parsed.as_ref().err().map(|_| format!("请为 {} 输入有效值。", field.label));
                 invalid.iter().flatten().next().cloned()
             };
-            let result = parsed
-                .map_err(|_| format!("请为 {} 输入有效值。", field.label))
-                .and_then(|value| {
+            let result = parsed.map_err(|_| format!("请为 {} 输入有效值。", field.label)).and_then(
+                |value| {
                     let mut document = document.borrow_mut();
-                    *document
-                        .pointer_mut(&field.path)
-                        .ok_or("此命令参数已不可用")? = value;
+                    *document.pointer_mut(&field.path).ok_or("此命令参数已不可用")? = value;
                     serde_json::from_value::<WmCommand>(document.clone())
                         .map_err(|_| format!("请为 {} 输入有效值。", field.label))
-                });
+                },
+            );
             let result = if let Some(error) = unresolved {
                 Err(error)
             } else {

@@ -97,9 +97,8 @@ impl Inspector {
             group.setAccessibilityRole(Some(unsafe {
                 objc2_app_kit::NSAccessibilityRadioGroupRole
             }));
-            group.setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-                "要配置的布局",
-            )));
+            group
+                .setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str("要配置的布局")));
 
             let owner = weak.clone();
             let default_popup = Rc::new(
@@ -115,8 +114,7 @@ impl Inspector {
                     }),
             );
             default_popup.accessibility_label("默认布局");
-            default_popup
-                .tooltip("新工作区使用的布局；工作区可单独指定布局。");
+            default_popup.tooltip("新工作区使用的布局；工作区可单独指定布局。");
             let default_control = Rc::new(
                 HStack::new(&ui)
                     .spacing(6.0)
@@ -214,9 +212,7 @@ impl Inspector {
                     ))
                     .section(
                         Section::new(&ui, "共享设置")
-                            .description(
-                                "所有布局共用这些设置；布局或显示器可单独覆盖。",
-                            )
+                            .description("所有布局共用这些设置；布局或显示器可单独覆盖。")
                             .content(GroupBox::with_insets(
                                 &ui,
                                 shared,
@@ -282,9 +278,7 @@ impl Inspector {
         Alert::new(
             &self.ui,
             &format!("恢复{title}的默认设置？"),
-            &format!(
-                "{title}的设置将恢复初始值。默认布局、共享设置和显示器覆盖设置保持不变。"
-            ),
+            &format!("{title}的设置将恢复初始值。默认布局、共享设置和显示器覆盖设置保持不变。"),
         )
         .button("恢复默认")
         .button("取消")

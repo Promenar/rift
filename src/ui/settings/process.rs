@@ -212,9 +212,7 @@ async fn open(
         }
         RiftMachClient::connect()
             .and_then(|client| client.set_shortcut_recording(std::process::id() as i32, recording))
-            .map_err(|error| {
-                format!("Rift 不可用时无法安全录制按键：{error}")
-            })
+            .map_err(|error| format!("Rift 不可用时无法安全录制按键：{error}"))
     });
     super::timing::finish(construction, "Settings::new");
     if let Some(startup) = startup {
@@ -323,9 +321,7 @@ fn fail(error: &str) {
     tracing::error!(%error, "Settings cannot reach Rift");
     dispatchr::queue::main().after_f_s(Time::NOW, error.to_owned(), |error| {
         let ui = Ui::new(MainThreadMarker::new().expect("main queue"));
-        Alert::new(&ui, "“Rift 设置”无法连接到 Rift", &error)
-            .button("好")
-            .run_modal();
+        Alert::new(&ui, "“Rift 设置”无法连接到 Rift", &error).button("好").run_modal();
         std::process::exit(1)
     });
 }

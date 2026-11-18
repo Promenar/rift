@@ -95,7 +95,11 @@ pub enum LayoutCommand {
     ResizeWindowGrow(ResizeOrientation),
     #[command(label = "缩小窗口", order = 8)]
     ResizeWindowShrink(ResizeOrientation),
-    #[command(label = "调整窗口尺寸", order = 9, sample = "Self::ResizeWindowBy { amount: 10.0 }")]
+    #[command(
+        label = "调整窗口尺寸",
+        order = 9,
+        sample = "Self::ResizeWindowBy { amount: 10.0 }"
+    )]
     ResizeWindowBy { amount: f64 },
     #[command(
         group = 4,

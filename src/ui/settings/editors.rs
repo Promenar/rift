@@ -87,10 +87,7 @@ fn record_editor_with_delete(
         model.submit_edit(
             Box::new(move |source| {
                 if *source != *base {
-                    return Err(
-                        "设置已在其他位置更改。请取消并重新打开此编辑器后重试。"
-                            .into(),
-                    );
+                    return Err("设置已在其他位置更改。请取消并重新打开此编辑器后重试。".into());
                 }
                 *source = value.as_ref().clone();
                 Ok(())
@@ -123,10 +120,7 @@ fn record_editor_with_delete(
             model.submit_edit(
                 Box::new(move |source| {
                     if *source != *base {
-                        return Err(
-                            "设置在别处已更改。请重新打开此规则后再删除。"
-                                .into(),
-                        );
+                        return Err("设置在别处已更改。请重新打开此规则后再删除。".into());
                     }
                     source.virtual_workspaces.app_rules.remove(index);
                     Ok(())
@@ -500,11 +494,7 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
                             && value.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
                         if uuid {
                             let id = &value[..8];
-                            (
-                                value.clone(),
-                                "未知显示器".into(),
-                                format!("未连接 · {id}"),
-                            )
+                            (value.clone(), "未知显示器".into(), format!("未连接 · {id}"))
                         } else {
                             (value.clone(), value.clone(), "未连接".into())
                         }
@@ -554,13 +544,13 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
     let ui = f.ui;
     let state = Rc::new_cyclic(|weak: &Weak<State>| {
         let owner = weak.clone();
-        let field = Rc::new(
-            TextField::new(&ui).placeholder("显示器 UUID 或名称").on_commit(move |value| {
+        let field = Rc::new(TextField::new(&ui).placeholder("显示器 UUID 或名称").on_commit(
+            move |value| {
                 if let Some(state) = owner.upgrade() {
                     state.submit(i, &value);
                 }
-            }),
-        );
+            },
+        ));
         field.accessibility_label("显示器 UUID 或名称");
         field.set_hidden(true);
         let menu = Menu::new(&ui);
@@ -599,9 +589,7 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
             }),
     );
     list.ns_table_view()
-        .setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-            "显示器偏好",
-        )));
+        .setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str("显示器偏好")));
     _ = state.list.set(list.clone());
     let add_owner = Rc::downgrade(&state);
     let owner = Rc::downgrade(&state);
@@ -629,9 +617,7 @@ fn workspace_display_row(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Se
             }),
     );
     if let Some(add) = controls.ns_view().subviews().firstObject() {
-        add.setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str(
-            "添加显示器偏好",
-        )));
+        add.setAccessibilityLabel(Some(&objc2_foundation::NSString::from_str("添加显示器偏好")));
         // The button retains the menu; this also exposes it to secondary clicks.
         unsafe { add.setMenu(Some(state.menu.ns_menu())) };
     }
@@ -1046,9 +1032,7 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
     ));
     let mut page = f.finish(
         SettingsPage::new(&ui, "")
-            .subtitle(
-                "选择 Rift 管理哪些窗口及其打开位置。拖动规则可调整顺序。",
-            )
+            .subtitle("选择 Rift 管理哪些窗口及其打开位置。拖动规则可调整顺序。")
             .section(search)
             .section(table)
             .bottom_bar(HStack::new(&ui).push(remove).spacer(&ui).push(edit))
@@ -1345,8 +1329,7 @@ fn window_tag_picker(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Settin
             let mask = if v.trim().is_empty() {
                 None
             } else {
-                let mask =
-                    v.trim().parse::<u64>().map_err(|_| "请输入正的整数位掩码")?;
+                let mask = v.trim().parse::<u64>().map_err(|_| "请输入正的整数位掩码")?;
                 if mask == 0 || mask > i64::MAX as u64 {
                     return Err("请输入 1 到 9223372036854775807 之间的掩码，或留空".into());
                 }
@@ -1364,11 +1347,7 @@ fn window_tag_picker(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Settin
         Model::submit(
             &weak,
             Box::new(move |source| {
-                let rule = source
-                    .virtual_workspaces
-                    .app_rules
-                    .get_mut(i)
-                    .ok_or("规则已不存在")?;
+                let rule = source.virtual_workspaces.app_rules.get_mut(i).ok_or("规则已不存在")?;
                 rule.window_tags = None;
                 Ok(())
             }),
@@ -1407,10 +1386,7 @@ fn window_tag_picker(f: &mut FormBuilder, model: &Rc<Model>, i: usize) -> Settin
         .push(search)
         .push(list_header)
         .push(GroupBox::with_insets(&ui, scroll, uniform_insets(0.0)))
-        .push(Caption::new(
-            &ui,
-            "所有选中的位都必须存在，其他位允许出现。",
-        ))
+        .push(Caption::new(&ui, "所有选中的位都必须存在，其他位允许出现。"))
         .push(Disclosure::new(&ui, "自定义位掩码", raw).compact())
         .push(message.clone())
         .push(Divider::new(&ui))
@@ -1444,9 +1420,8 @@ fn tag_label(name: &str) -> String {
 
 fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
     let mut f = FormBuilder::new(ui, model);
-    let mut matches = Section::new(&ui, "匹配窗口").description(
-        "所有条件都必须匹配。应用留空则跨应用匹配。",
-    );
+    let mut matches =
+        Section::new(&ui, "匹配窗口").description("所有条件都必须匹配。应用留空则跨应用匹配。");
     let existing = model
         .source
         .borrow()
@@ -1462,8 +1437,7 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
         Model::submit(
             &weak,
             Box::new(move |s| {
-                let rule =
-                    s.virtual_workspaces.app_rules.get_mut(i).ok_or("规则已不存在")?;
+                let rule = s.virtual_workspaces.app_rules.get_mut(i).ok_or("规则已不存在")?;
                 rule.app_id = target.0;
                 rule.app_name = target.1;
                 Ok(())
@@ -1490,24 +1464,18 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
     }));
     let weak = Rc::downgrade(model);
     let error = Rc::downgrade(&message);
-    let any_app = Rc::new(
-        Button::new(&ui, "任意应用").borderless().on_click(move || {
-            Model::submit(
-                &weak,
-                Box::new(move |source| {
-                    let rule = source
-                        .virtual_workspaces
-                        .app_rules
-                        .get_mut(i)
-                        .ok_or("规则已不存在")?;
-                    rule.app_id = None;
-                    rule.app_name = None;
-                    Ok(())
-                }),
-                error.clone(),
-            );
-        }),
-    );
+    let any_app = Rc::new(Button::new(&ui, "任意应用").borderless().on_click(move || {
+        Model::submit(
+            &weak,
+            Box::new(move |source| {
+                let rule = source.virtual_workspaces.app_rules.get_mut(i).ok_or("规则已不存在")?;
+                rule.app_id = None;
+                rule.app_name = None;
+                Ok(())
+            }),
+            error.clone(),
+        );
+    }));
     f.sync_when(
         &any_app,
         move |source| {
@@ -1631,9 +1599,8 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
                 }
             },
         ).help("自动会管理普通窗口，并在适当时忽略特殊窗口；“管理”始终包含匹配窗口；“忽略”则排除它们。"));
-    let mut geometry = Section::new(&ui, "初始尺寸与位置").description(
-        "留空则沿用现有几何位置。位置仅适用于浮动窗口。",
-    );
+    let mut geometry = Section::new(&ui, "初始尺寸与位置")
+        .description("留空则沿用现有几何位置。位置仅适用于浮动窗口。");
     for (title, axis) in [
         ("水平位置 (%)", 0),
         ("垂直位置 (%)", 1),
@@ -1864,15 +1831,12 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
             *self.selected.borrow_mut() = uuid.clone();
             self.select_current();
             let Some(uuid) = uuid else {
-                self.status.set_text(
-                    "未连接显示器。可通过 UUID 添加显示器并预先设置。",
-                );
+                self.status.set_text("未连接显示器。可通过 UUID 添加显示器并预先设置。");
                 return self.status.set_hidden(false);
             };
             let connected =
                 self.choices.borrow().iter().any(|(id, connected)| *id == uuid && *connected);
-            self.status
-                .set_text("未连接。此显示器连接后将应用这些设置。");
+            self.status.set_text("未连接。此显示器连接后将应用这些设置。");
             self.status.set_hidden(connected);
             let mut pages = self.pages.borrow_mut();
             let page = pages
@@ -1932,12 +1896,11 @@ pub(super) fn display_inspector(ui: Ui, model: &Rc<Model>) -> Page {
             }
         });
         let owner = weak.clone();
-        let cancel =
-            Button::new(&ui, "取消").push().key_equivalent("\u{1b}").on_click(move || {
-                if let Some(state) = owner.upgrade() {
-                    state.adding.set_hidden(true);
-                }
-            });
+        let cancel = Button::new(&ui, "取消").push().key_equivalent("\u{1b}").on_click(move || {
+            if let Some(state) = owner.upgrade() {
+                state.adding.set_hidden(true);
+            }
+        });
         let adding = Rc::new(
             VStack::new(&ui)
                 .spacing(4.0)
@@ -2123,11 +2086,7 @@ fn display_options(ui: Ui, model: &Rc<Model>, uuid: String) -> Page {
     let clear_id = uuid.clone();
     section = section.row(override_group(
         &mut f,
-        (
-            "滚动列宽",
-            "滚动布局",
-            "使用布局列宽",
-        ),
+        ("滚动列宽", "滚动布局", "使用布局列宽"),
         "%",
         fields,
         message,

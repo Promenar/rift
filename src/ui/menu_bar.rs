@@ -833,13 +833,8 @@ fn build_static_menu(mtm: MainThreadMarker, handler: &Rc<MenuActionHandler>) -> 
         "重新加载配置",
         MenuActionHandler::on_reload_config,
     );
-    let settings_item = add_action_item(
-        &menu,
-        mtm,
-        handler,
-        "设置…",
-        MenuActionHandler::on_open_settings,
-    );
+    let settings_item =
+        add_action_item(&menu, mtm, handler, "设置…", MenuActionHandler::on_open_settings);
     settings_item.setKeyEquivalent(&NSString::from_str(","));
     settings_item.setKeyEquivalentModifierMask(NSEventModifierFlags::Command);
 

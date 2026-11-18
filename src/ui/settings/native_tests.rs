@@ -469,12 +469,8 @@ pub fn run(ui: Ui) {
                     );
                 }
                 assert_eq!(settings.router.current(), Category::Layouts);
-                let sidebar =
-                    named::<NSTableView>(&root_window(&settings), "设置类别").unwrap();
-                assert_eq!(
-                    sidebar.selectedRow(),
-                    navigation_row(&sidebar, "布局") as isize
-                );
+                let sidebar = named::<NSTableView>(&root_window(&settings), "设置类别").unwrap();
+                assert_eq!(sidebar.selectedRow(), navigation_row(&sidebar, "布局") as isize);
             }
             settings.router.layouts().select_target(layouts::Target::Layout(
                 crate::common::config::LayoutMode::Traditional,
@@ -859,8 +855,7 @@ pub fn run(ui: Ui) {
             );
             settings.router.model.replace_source(source.clone());
             page.synchronize(&settings.router.model);
-            let mode =
-                named::<NSSegmentedControl>(page.view.ns_view(), "间距控制").unwrap();
+            let mode = named::<NSSegmentedControl>(page.view.ns_view(), "间距控制").unwrap();
             mode.setSelectedSegment(1);
             assert!(unsafe { mode.sendAction_to(mode.action(), mode.target().as_deref()) });
             assert_eq!(
@@ -877,8 +872,8 @@ pub fn run(ui: Ui) {
                         .isEditable()
                 );
             }
-            let top = named::<objc2_app_kit::NSTextField>(page.view.ns_view(), "屏幕边缘, 上")
-                .unwrap();
+            let top =
+                named::<objc2_app_kit::NSTextField>(page.view.ns_view(), "屏幕边缘, 上").unwrap();
             settings.router.host.set_cached_page(page.view.clone());
             assert!(settings.window.ns_window().makeFirstResponder(Some(&top)));
             top.currentEditor()
@@ -973,10 +968,7 @@ pub fn run(ui: Ui) {
             assert_eq!(custom.outer.as_ref().map(|o| (o.top, o.right)), Some((9.0, 5.0)));
             assert!(custom.inner.is_none(), "between-window spacing still inherits");
             assert_eq!(
-                named::<NSTextField>(view, "屏幕边缘, 右")
-                    .unwrap()
-                    .stringValue()
-                    .to_string(),
+                named::<NSTextField>(view, "屏幕边缘, 右").unwrap().stringValue().to_string(),
                 "5"
             );
             let width = named::<NSTextField>(view, "默认列宽").unwrap();
@@ -993,9 +985,7 @@ pub fn run(ui: Ui) {
                 "clearing the only override removes the display’s entry"
             );
             unsafe {
-                named::<NSButton>(view, "屏幕边缘：使用共享值")
-                    .unwrap()
-                    .performClick(None);
+                named::<NSButton>(view, "屏幕边缘：使用共享值").unwrap().performClick(None);
             }
             let request = pending.try_recv().unwrap();
             let Action::Edit(edit) = request.action else {
@@ -1064,10 +1054,7 @@ pub fn run(ui: Ui) {
         let popup = find::<NSPopUpButton>(row.control_view()).unwrap();
         let page = form.finish(row);
         page.synchronize(&settings.router.model);
-        assert_eq!(
-            popup.titleOfSelectedItem().unwrap().to_string(),
-            "所选窗口旁边"
-        );
+        assert_eq!(popup.titleOfSelectedItem().unwrap().to_string(), "所选窗口旁边");
         assert_eq!(popup.numberOfItems(), 2);
         assert_eq!(
             popup
@@ -1229,10 +1216,7 @@ fn keyboard_controls(
         }
         panic!("shortcut must belong to a native list cell")
     }
-    assert_eq!(
-        action_label(&shown("聚焦窗口 左").unwrap()),
-        "聚焦窗口"
-    );
+    assert_eq!(action_label(&shown("聚焦窗口 左").unwrap()), "聚焦窗口");
     assert_eq!(action_label(&shown("聚焦窗口 右").unwrap()), "");
     assert!(shown("平衡布局").is_none(), "Assigned is the quiet default");
     assert!(
@@ -1321,10 +1305,7 @@ fn keyboard_controls(
     }
     change_text(&search, "右");
     assert!(shown("聚焦窗口 左").is_none());
-    assert_eq!(
-        action_label(&shown("聚焦窗口 右").unwrap()),
-        "聚焦窗口"
-    );
+    assert_eq!(action_label(&shown("聚焦窗口 右").unwrap()), "聚焦窗口");
     change_text(&search, "");
     assert_eq!(action_label(&shown("聚焦窗口 右").unwrap()), "");
     available.set(false);
@@ -1342,10 +1323,7 @@ fn keyboard_controls(
         }
         ancestor = unsafe { view.superview() };
     };
-    assert_eq!(
-        menu.itemAtIndex(0).unwrap().title().to_string(),
-        "更改快捷键…"
-    );
+    assert_eq!(menu.itemAtIndex(0).unwrap().title().to_string(), "更改快捷键…");
     menu.performActionForItemAtIndex(0);
     assert!(capturing.get());
     press(&left, 53, "\u{1b}", none);
@@ -1519,10 +1497,7 @@ fn keyboard_controls(
     let table = named::<NSTableView>(&catalog, "可用快捷键操作").unwrap();
     change_text(&action_search, "工作区");
     table.selectRowIndexes_byExtendingSelection(
-        &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(
-            &table,
-            "切换到工作区",
-        )),
+        &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&table, "切换到工作区")),
         false,
     );
     change_text(&action_search, "no such action");
@@ -1530,10 +1505,7 @@ fn keyboard_controls(
     assert!(!named::<NSButton>(&catalog, "继续").unwrap().isEnabled());
     change_text(&action_search, "工作区");
     table.selectRowIndexes_byExtendingSelection(
-        &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(
-            &table,
-            "切换到工作区",
-        )),
+        &objc2_foundation::NSIndexSet::indexSetWithIndex(navigation_row(&table, "切换到工作区")),
         false,
     );
     click(&named::<NSButton>(&catalog, "继续").unwrap());
@@ -1603,8 +1575,7 @@ fn keyboard_controls(
         "7",
     );
     assert!(
-        named::<objc2_app_kit::NSTextField>(&editor, "请为 进程 ID 输入有效值。")
-            .is_some(),
+        named::<objc2_app_kit::NSTextField>(&editor, "请为 进程 ID 输入有效值。").is_some(),
         "editing another field must not clear an unresolved identifier error"
     );
     change_text(&pid, "345");
@@ -2032,8 +2003,7 @@ pub fn run_lifecycle(ui: Ui) {
                 .unwrap()
                 .view
                 .clone();
-            let check =
-                named::<objc2_app_kit::NSButton>(about.ns_view(), "检查更新…").unwrap();
+            let check = named::<objc2_app_kit::NSButton>(about.ns_view(), "检查更新…").unwrap();
             assert_eq!(check.title().to_string(), "检查更新…");
             assert!(unsafe { check.sendAction_to(check.action(), check.target().as_deref()) });
             completions.push(pending.try_recv().unwrap());
@@ -2153,8 +2123,7 @@ fn late_runtime_populates_picker(
         .expect("Add App Rule toolbar button");
     assert!(unsafe { add.sendAction_to(add.action(), add.target().as_deref()) });
     let window = settings.model().sheet.borrow().as_ref().unwrap().ns_window().retain();
-    let change =
-        named::<objc2_app_kit::NSButton>(&window.contentView().unwrap(), "更改…").unwrap();
+    let change = named::<objc2_app_kit::NSButton>(&window.contentView().unwrap(), "更改…").unwrap();
     assert!(unsafe { change.sendAction_to(change.action(), change.target().as_deref()) });
     let picker = NSApplication::sharedApplication(settings.router.ui.mtm())
         .windows()
@@ -2532,8 +2501,7 @@ pub fn render(
                 window.orderFront(None);
                 if scope == Some(38) {
                     let search =
-                        named::<objc2_app_kit::NSSearchField>(&content, "筛选快捷键")
-                            .unwrap();
+                        named::<objc2_app_kit::NSSearchField>(&content, "筛选快捷键").unwrap();
                     change_text(&search, "运行命令");
                     content.layoutSubtreeIfNeeded();
                 }
@@ -2553,8 +2521,7 @@ pub fn render(
                 }
             }
             _ => {
-                let search =
-                    named::<objc2_app_kit::NSSearchField>(&content, "筛选快捷键").unwrap();
+                let search = named::<objc2_app_kit::NSSearchField>(&content, "筛选快捷键").unwrap();
                 change_text(&search, "alt+h");
             }
         }
