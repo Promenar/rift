@@ -2097,8 +2097,7 @@ fn source() -> ConfigSource {
     }
 }
 
-// Open the real Add Rule sheet before runtime discovery completes: late inventory must
-// redraw its native list without changing the draft or requiring another search keystroke.
+// The Add Rule picker lists tracked windows and prefills a rule from the chosen one.
 fn late_runtime_populates_picker(
     settings: &Settings,
     pending: &mut tokio::sync::mpsc::UnboundedReceiver<Request>,
@@ -2122,67 +2121,47 @@ fn late_runtime_populates_picker(
         .find_map(|view| add_button(&view))
         .expect("Add App Rule toolbar button");
     assert!(unsafe { add.sendAction_to(add.action(), add.target().as_deref()) });
-    let window = settings.model().sheet.borrow().as_ref().unwrap().ns_window().retain();
-    let change = named::<objc2_app_kit::NSButton>(&window.contentView().unwrap(), "更改…").unwrap();
-    assert!(unsafe { change.sendAction_to(change.action(), change.target().as_deref()) });
     let picker = NSApplication::sharedApplication(settings.router.ui.mtm())
         .windows()
         .iter()
-        .filter(|candidate| {
-            candidate.windowNumber() != window.windowNumber()
-                && candidate.windowNumber() != settings.window.ns_window().windowNumber()
-        })
-        .filter_map(|candidate| candidate.contentView())
-        .find(|content| find::<NSTableView>(content).is_some())
-        .expect("application picker popover");
+        .find(|candidate| candidate.windowNumber() != settings.window.ns_window().windowNumber())
+        .and_then(|candidate| candidate.contentView())
+        .filter(|content| find::<NSTableView>(content).is_some())
+        .expect("window picker popover");
     let list = find::<NSTableView>(&picker).unwrap();
-    assert_eq!(list.numberOfRows(), 0);
-    settings.refresh_applications(vec![rift_protocol::ApplicationData {
-        pid: 1,
+    assert_eq!(list.numberOfRows(), 0, "no windows before the daemon answers");
+    settings.set_rule_windows(vec![rift_protocol::AppRulePreviewWindow {
+        window_id: rift_protocol::WindowId { pid: 1, idx: 1 },
+        title: "Late Window".into(),
         bundle_id: Some("dev.test.Late".into()),
-        name: "Late".into(),
-        is_frontmost: false,
-        window_count: 1,
+        app_name: Some("Late".into()),
+        ax_role: Some("AXWindow".into()),
+        ax_subrole: None,
+        window_tags: None,
+        is_floating: false,
+        frame: rift_protocol::Rect {
+            size: rift_protocol::Size { width: 800.0, height: 600.0 },
+            ..Default::default()
+        },
+        workspace_index: Some(0),
+        workspace_name: Some("first".into()),
+        matched_rule: None,
     }]);
-    assert_eq!(list.numberOfRows(), 1, "late runtime populates an open picker");
-    list.selectRowIndexes_byExtendingSelection(
-        &objc2_foundation::NSIndexSet::indexSetWithIndex(0),
-        false,
-    );
+    assert_eq!(list.numberOfRows(), 1, "preview windows populate an open picker");
+    let cell = list.viewAtColumn_row_makeIfNecessary(0, 0, true).unwrap();
+    let open = named::<objc2_app_kit::NSButton>(&cell, "打开Late Window").expect("row open button");
+    assert!(unsafe { open.sendAction_to(open.action(), open.target().as_deref()) });
     let draft = settings.model().sheet_model.borrow().as_ref().unwrap().clone();
-    assert_eq!(
-        draft
-            .source
-            .borrow()
-            .virtual_workspaces
-            .app_rules
-            .last()
-            .unwrap()
-            .app_id
-            .as_deref(),
-        Some("dev.test.Late")
-    );
-    settings.refresh_applications(vec![]);
-    assert_eq!(list.numberOfRows(), 0, "removed apps leave the picker");
-    assert_eq!(
-        draft
-            .source
-            .borrow()
-            .virtual_workspaces
-            .app_rules
-            .last()
-            .unwrap()
-            .app_id
-            .as_deref(),
-        Some("dev.test.Late"),
-        "inventory refresh preserves the chosen matcher"
-    );
+    let rule = draft.source.borrow().virtual_workspaces.app_rules.last().cloned().unwrap();
+    assert_eq!(rule.app_id.as_deref(), Some("dev.test.Late"));
+    assert_eq!(rule.title_substring.as_deref(), Some("Late Window"));
+    assert!(rule.enabled);
     settings.model().close_sheet();
     settings.router.navigate(Category::General);
     while let Ok(request) = pending.try_recv() {
         assert!(
-            matches!(request.action, Action::RefreshRuntime),
-            "discovery must not edit config"
+            matches!(request.action, Action::PreviewRules(_)),
+            "picking a window must not edit config"
         );
     }
 }

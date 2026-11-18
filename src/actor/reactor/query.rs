@@ -2,8 +2,8 @@ use std::sync::mpsc::{RecvError, SyncSender, sync_channel};
 
 use objc2_core_foundation::CGRect;
 use rift_protocol::{
-    ApplicationData, ContainerTreeNode, LayoutStateData, Point, Rect, Size, WindowLayoutPosition,
-    WorkspaceLayoutData,
+    AppRuleMatcher, AppRulePreviewWindow, ApplicationData, ContainerTreeNode, LayoutStateData,
+    Point, Rect, Size, WindowLayoutPosition, WorkspaceLayoutData,
 };
 
 use crate::actor::app::WindowId;
@@ -780,6 +780,61 @@ impl Reactor {
             }
         }
         Some(data)
+    }
+
+    /// Evaluate a draft app-rule set against every tracked window, in
+    /// configuration order. Unlike `query_windows`, this includes windows Rift
+    /// currently leaves unmanaged so the rule editor can target them too.
+    pub fn preview_app_rules(&self, rules: &[AppRuleMatcher]) -> Vec<AppRulePreviewWindow> {
+        let mut windows = Vec::new();
+        for (wid, window) in self.state.windows.iter_windows() {
+            let Some(app) = self.app_manager.apps.get(&wid.pid) else {
+                continue;
+            };
+            let title = window.info.title.clone();
+            if title.is_empty() {
+                continue;
+            }
+            let tags = window.info.sys_id.and_then(crate::sys::window_server::window_tags);
+            let context = crate::model::WindowRuleContext {
+                app_bundle_id: app.info.bundle_id.as_deref(),
+                app_name: app.info.localized_name.as_deref(),
+                window_title: Some(&title),
+                ax_role: window.info.ax_role.as_deref(),
+                ax_subrole: window.info.ax_subrole.as_deref(),
+                window_tags: tags,
+            };
+            let matched_rule = crate::model::app_rules::preview_rule_index(rules, context);
+            let workspace = self.state.windows.workspace_for_window(wid).map(|id| {
+                let store = self.layout_manager.layout_engine.workspaces();
+                let workspace = &store[id];
+                (
+                    store.workspace_index(workspace.space, id),
+                    workspace.name.clone(),
+                )
+            });
+            windows.push(AppRulePreviewWindow {
+                window_id: wid.into(),
+                title,
+                bundle_id: app.info.bundle_id.clone(),
+                app_name: app.info.localized_name.clone(),
+                ax_role: window.info.ax_role.clone(),
+                ax_subrole: window.info.ax_subrole.clone(),
+                window_tags: tags,
+                is_floating: self.layout_manager.layout_engine.is_window_floating(wid),
+                frame: protocol_rect(window.frame_monotonic),
+                workspace_index: workspace.as_ref().and_then(|(index, _)| *index),
+                workspace_name: workspace.map(|(_, name)| name),
+                matched_rule,
+            });
+        }
+        windows.sort_by(|a, b| {
+            a.app_name
+                .cmp(&b.app_name)
+                .then_with(|| a.title.cmp(&b.title))
+                .then_with(|| a.window_id.cmp(&b.window_id))
+        });
+        windows
     }
 
     pub fn query_applications(&self) -> Vec<ApplicationData> {

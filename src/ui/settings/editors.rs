@@ -858,6 +858,26 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
         .symbol("app")
         .images(application_icons(|rule: &AppWorkspaceRule| rule.app_id.clone()))
         .on_open(move |index| action(index))
+        .toggle(|rule| rule.enabled, {
+            let weak = Rc::downgrade(model);
+            let error = Rc::downgrade(&message);
+            let indices = visible.clone();
+            move |row, value| {
+                let Some(index) = indices.borrow().get(row).copied() else {
+                    return;
+                };
+                Model::submit(
+                    &weak,
+                    Box::new(move |s| {
+                        if let Some(rule) = s.virtual_workspaces.app_rules.get_mut(index) {
+                            rule.enabled = value;
+                        }
+                        Ok(())
+                    }),
+                    error.clone(),
+                );
+            }
+        })
         .reorderable(true)
         .on_reorder({
             let weak = Rc::downgrade(model);
@@ -894,9 +914,11 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
         }
     });
     let weak = Rc::downgrade(model);
-    let add = Button::new(&ui, "添加").symbol("plus").on_click(move || {
+    let add_button = Button::new(&ui, "添加").symbol("plus");
+    let anchor = WeakView::new(&add_button);
+    let add = add_button.on_click(move || {
         if let Some(model) = weak.upgrade() {
-            add_rule(ui, &model);
+            add_rule(ui, &model, &anchor);
         }
     });
     add.accessibility_label("添加应用规则…");
@@ -1030,11 +1052,60 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
         add,
         Popup::actions(&ui, "按工作区筛选规则", menu),
     ));
+    let preview = Rc::new(
+        SettingsList::<Rc<rift_protocol::AppRulePreviewWindow>>::new(
+            &ui,
+            |window| window.title.clone(),
+            |window| preview_summary(window),
+        )
+        .full_length()
+        .fit_content(180.0)
+        .empty_message("没有打开的窗口"),
+    );
+    let update_preview: Rc<dyn Fn()> = {
+        let weak_model = Rc::downgrade(model);
+        let preview = Rc::downgrade(&preview);
+        Rc::new(move || {
+            let (Some(model), Some(preview)) = (weak_model.upgrade(), preview.upgrade()) else {
+                return;
+            };
+            let rows: Vec<Rc<rift_protocol::AppRulePreviewWindow>> =
+                model.env.rule_windows().into_iter().map(Rc::new).collect();
+            preview.set_rows_if_changed(rows);
+        })
+    };
+    model.env.on_rule_windows({
+        let update = Rc::downgrade(&update_preview);
+        move || {
+            update.upgrade().is_some_and(|update| {
+                update();
+                true
+            })
+        }
+    });
+    let request_preview = {
+        let weak = Rc::downgrade(model);
+        move || {
+            if let Some(model) = weak.upgrade() {
+                model.env.send(
+                    Action::PreviewRules(rule_matchers(&model.source.borrow())),
+                    Box::new(|_| {}),
+                );
+            }
+        }
+    };
+    request_preview();
+    f.sync.push(Box::new(move |_| request_preview()));
+    update_preview();
+    let preview_section = Section::new(&ui, "命中预览")
+        .description("按当前规则顺序评估已打开的窗口；停用的规则会被跳过。")
+        .content(preview);
     let mut page = f.finish(
         SettingsPage::new(&ui, "")
-            .subtitle("选择 Rift 管理哪些窗口及其打开位置。拖动规则可调整顺序。")
+            .subtitle("选择 Rift 管理哪些窗口及其打开位置。拖动规则可调整顺序；第一条启用的命中规则生效。")
             .section(search)
             .section(table)
+            .section(preview_section)
             .bottom_bar(HStack::new(&ui).push(remove).spacer(&ui).push(edit))
             .section(message),
     );
@@ -1043,6 +1114,9 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
 }
 
 fn rule_behavior(rule: &AppWorkspaceRule) -> String {
+    if !rule.enabled {
+        return "已停用".into();
+    }
     let mut parts = vec![if rule.manage == Some(false) {
         "忽略".into()
     } else if rule.floating {
@@ -1172,23 +1246,168 @@ fn app_picker(
     )
 }
 
-fn add_rule(ui: Ui, model: &Rc<Model>) {
-    // Use the same local draft as editing: an incomplete rule stays in the sheet
-    // until the user supplies at least one matcher and commits it.
-    record_editor(
-        ui,
-        model,
-        "添加应用规则",
-        |draft| {
-            let index = draft.source.borrow().virtual_workspaces.app_rules.len();
-            Arc::make_mut(&mut draft.source.borrow_mut())
-                .virtual_workspaces
-                .app_rules
-                .push(AppWorkspaceRule::default());
-            rule_detail(ui, draft, index)
-        },
-        true,
+/// Convert the editable rule list into the matcher-only shape the preview
+/// request accepts.
+fn rule_matchers(
+    source: &crate::common::config::ConfigSource,
+) -> Vec<rift_protocol::AppRuleMatcher> {
+    source
+        .virtual_workspaces
+        .app_rules
+        .iter()
+        .map(|rule| rift_protocol::AppRuleMatcher {
+            enabled: rule.enabled,
+            app_id: rule.app_id.clone(),
+            app_name: rule.app_name.clone(),
+            title_regex: rule.title_regex.clone(),
+            title_substring: rule.title_substring.clone(),
+            ax_role: rule.ax_role.clone(),
+            ax_subrole: rule.ax_subrole.clone(),
+            window_tags: rule.window_tags,
+        })
+        .collect()
+}
+
+fn preview_summary(window: &rift_protocol::AppRulePreviewWindow) -> String {
+    let app = window.app_name.as_deref().or(window.bundle_id.as_deref()).unwrap_or("未知应用");
+    let place = window
+        .workspace_name
+        .as_deref()
+        .map(str::to_owned)
+        .unwrap_or_else(|| "未分配工作区".into());
+    let result = match window.matched_rule {
+        Some(index) => format!("第 {} 条命中", index + 1),
+        None => "未命中".into(),
+    };
+    format!("{app} · {place} · {result}")
+}
+
+/// A rule that reproduces the picked window: app, title, accessibility role and
+/// the window's current placement become the matcher and action.
+fn rule_from_window(window: &rift_protocol::AppRulePreviewWindow) -> AppWorkspaceRule {
+    AppWorkspaceRule {
+        enabled: true,
+        app_id: window.bundle_id.clone(),
+        app_name: window.app_name.clone(),
+        title_substring: (!window.title.is_empty()).then(|| window.title.clone()),
+        ax_role: window.ax_role.clone(),
+        ax_subrole: window.ax_subrole.clone(),
+        window_tags: window.window_tags,
+        workspace: window.workspace_index.map(WorkspaceSelector::Index),
+        floating: window.is_floating,
+        size: window.is_floating.then(|| AppRuleSize {
+            w: Some(window.frame.size.width),
+            h: Some(window.frame.size.height),
+        }),
+        ..AppWorkspaceRule::default()
+    }
+}
+
+fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView) {
+    // Refresh the window list the picker renders; late results arrive through
+    // `Env::on_rule_windows`.
+    model.env.send(
+        Action::PreviewRules(rule_matchers(&model.source.borrow())),
+        Box::new(|_| {}),
     );
+
+    let query = Rc::new(RefCell::new(String::new()));
+    let rows: Rc<RefCell<Vec<Rc<rift_protocol::AppRulePreviewWindow>>>> = Rc::default();
+    let dismissal: Rc<RefCell<Weak<Popover>>> = Rc::new(RefCell::new(Weak::new()));
+    let list = SettingsList::<Rc<rift_protocol::AppRulePreviewWindow>>::new(
+        &ui,
+        |window| window.title.clone(),
+        |window| preview_summary(window),
+    )
+    .full_length()
+    .fit_content(260.0)
+    .empty_message("没有打开的窗口")
+    .on_open({
+        let weak_model = Rc::downgrade(model);
+        let rows = rows.clone();
+        let dismissal = dismissal.clone();
+        move |row| {
+            let Some(window) = rows.borrow().get(row).cloned() else {
+                return;
+            };
+            if let Some(popover) = dismissal.borrow().upgrade() {
+                popover.close();
+            }
+            let Some(model) = weak_model.upgrade() else {
+                return;
+            };
+            let rule = rule_from_window(&window);
+            record_editor(
+                ui,
+                &model,
+                "添加应用规则",
+                move |draft| {
+                    let index = draft.source.borrow().virtual_workspaces.app_rules.len();
+                    Arc::make_mut(&mut draft.source.borrow_mut())
+                        .virtual_workspaces
+                        .app_rules
+                        .push(rule.clone());
+                    rule_detail(ui, draft, index)
+                },
+                true,
+            );
+        }
+    });
+    let list = Rc::new(list);
+    let update: Rc<dyn Fn()> = {
+        let weak_model = Rc::downgrade(model);
+        let list = Rc::downgrade(&list);
+        let rows = rows.clone();
+        let query = query.clone();
+        Rc::new(move || {
+            let (Some(model), Some(list)) = (weak_model.upgrade(), list.upgrade()) else {
+                return;
+            };
+            let query = query.borrow().to_lowercase();
+            let next: Vec<Rc<rift_protocol::AppRulePreviewWindow>> = model
+                .env
+                .rule_windows()
+                .into_iter()
+                .filter(|window| {
+                    query.is_empty()
+                        || window.title.to_lowercase().contains(&query)
+                        || window
+                            .app_name
+                            .as_deref()
+                            .is_some_and(|app| app.to_lowercase().contains(&query))
+                })
+                .map(Rc::new)
+                .collect();
+            *rows.borrow_mut() = next.clone();
+            list.set_rows_if_changed(next);
+        })
+    };
+    let search_update = update.clone();
+    let search = SearchField::new(&ui).placeholder("搜索窗口").on_change(move |value| {
+        *query.borrow_mut() = value;
+        search_update();
+    });
+    model.env.on_rule_windows({
+        let update = Rc::downgrade(&update);
+        move || {
+            update.upgrade().is_some_and(|update| {
+                update();
+                true
+            })
+        }
+    });
+    let content = VStack::new(&ui)
+        .spacing(8.0)
+        .insets(uniform_insets(12.0))
+        .push(search)
+        .push(list);
+    content.width(420.0);
+    let popover = Rc::new(Popover::new(&ui, content));
+    *dismissal.borrow_mut() = Rc::downgrade(&popover);
+    if let Some(view) = anchor.load() {
+        popover.show(&view);
+    }
+    update();
 }
 
 fn rule_name(model: &Model, rule: &AppWorkspaceRule) -> String {
@@ -1563,6 +1782,15 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
         },
     );
     let actions = Section::new(&ui, "窗口行为")
+        .row(f.switch(
+            "启用",
+            move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.enabled),
+            move |s, v| {
+                if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
+                    r.enabled = v;
+                }
+            },
+        ))
         .row(workspace)
         .row(f.switch(
             "浮动",

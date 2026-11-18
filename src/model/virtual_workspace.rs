@@ -2444,6 +2444,7 @@ mod tests {
         let mut settings = VirtualWorkspaceSettings::default();
         settings.default_workspace_count = 3;
         settings.app_rules = vec![AppWorkspaceRule {
+            enabled: true,
             app_id: Some("com.example.unmanaged".into()),
             workspace: None,
             floating: false,
@@ -2674,19 +2675,19 @@ mod tests {
                 manage: Some(true),
                 ..Default::default()
             },
-            // A title-specific rule can replace an existing assignment.
-            AppWorkspaceRule {
-                app_id: Some("app.zen-browser.zen".into()),
-                workspace: Some(WorkspaceSelector::Index(2)),
-                manage: Some(true),
-                ..Default::default()
-            },
+            // A title-specific rule must come first: the first enabled match wins.
             AppWorkspaceRule {
                 app_id: Some("app.zen-browser.zen".into()),
                 workspace: Some(WorkspaceSelector::Index(3)),
                 floating: true,
                 manage: Some(true),
                 title_substring: Some("bitwarden".into()),
+                ..Default::default()
+            },
+            AppWorkspaceRule {
+                app_id: Some("app.zen-browser.zen".into()),
+                workspace: Some(WorkspaceSelector::Index(2)),
+                manage: Some(true),
                 ..Default::default()
             },
         ];

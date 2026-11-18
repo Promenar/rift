@@ -394,6 +394,8 @@ fn encode_reactor_response(reactor: &mut reactor::Reactor, request: RiftRequest)
             encode_success(applications)
         }
 
+        RiftRequest::PreviewAppRules { rules } => encode_success(reactor.preview_app_rules(&rules)),
+
         RiftRequest::GetBindingMode => encode_success(&reactor.binding_mode),
         RiftRequest::SetShortcutRecording { .. } => {
             unreachable!("recording leases bypass the reactor")

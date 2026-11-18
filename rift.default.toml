@@ -355,6 +355,7 @@ workspace_names = [
 #   - ax_role / ax_subrole: exact match against macOS Accessibility (AX) role/subrole
 #
 # Rule options:
+#   - enabled (boolean, default true): set to false to keep the rule but skip it while matching.
 #   - workspace (integer, 0-based): target workspace index. If omitted or invalid, uses the active workspace.
 #     Alternatively, `workspace` may be a workspace name string to target by name.
 #   - floating (boolean): whether matched windows should float by default.
@@ -368,12 +369,10 @@ workspace_names = [
 #     for a visible window. When omitted, normal heuristics apply. Minimized windows remain unmanaged.
 #
 # Matching behavior (summary):
-#   1. All rules that match a window are evaluated.
-#   2. If multiple matching rules share the same non-empty `app_id`, the rule
-#      with the most specified conditions (the most non-empty fields) wins.
-#      If there's a tie, the earlier rule in the file wins.
-#   3. If matching rules do NOT share the same `app_id`, the rule with the
-#      highest specificity (most non-empty fields) is selected; ties are broken by order.
+#   1. Rules are evaluated from top to bottom.
+#   2. The first enabled rule whose specified conditions all match wins.
+#      Later rules, including more specific ones, are ignored for that window.
+#   3. Disabled rules (`enabled = false`) are skipped without affecting order.
 #   4. Within a single rule, all specified fields are combined conjunctively:
 #      the rule matches only if every non-empty field matches the window.
 #

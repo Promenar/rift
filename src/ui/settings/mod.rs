@@ -49,6 +49,8 @@ pub enum Action {
     Edit(SourceEdit),
     Reload,
     RefreshRuntime,
+    /// Evaluate a draft rule set for the rule editor's window picker and preview.
+    PreviewRules(Vec<rift_protocol::AppRuleMatcher>),
     CheckUpdates(updates::Completion),
 }
 pub struct Request {
@@ -126,6 +128,9 @@ struct Env {
     inventory: RefCell<applications::Inventory>,
     /// Weak native picker updates; expired views are pruned on the next inventory change.
     application_views: RefCell<Vec<Box<dyn Fn() -> bool>>>,
+    /// Latest rule-preview rows, and views that redraw when they change.
+    rule_windows: RefCell<Vec<rift_protocol::AppRulePreviewWindow>>,
+    rule_views: RefCell<Vec<Box<dyn Fn() -> bool>>>,
 }
 
 impl Env {
@@ -144,6 +149,19 @@ impl Env {
     fn set_installed_applications(&self, apps: Vec<(String, String)>) {
         *self.installed_applications.borrow_mut() = Some(apps);
         self.rebuild_applications();
+    }
+
+    pub(super) fn rule_windows(&self) -> Vec<rift_protocol::AppRulePreviewWindow> {
+        self.rule_windows.borrow().clone()
+    }
+
+    pub(super) fn set_rule_windows(&self, windows: Vec<rift_protocol::AppRulePreviewWindow>) {
+        *self.rule_windows.borrow_mut() = windows;
+        self.rule_views.borrow_mut().retain(|update| update());
+    }
+
+    pub(super) fn on_rule_windows(&self, update: impl Fn() -> bool + 'static) {
+        self.rule_views.borrow_mut().push(Box::new(update));
     }
 
     fn refresh_applications(&self, applications: Vec<ApplicationData>) {
@@ -410,6 +428,10 @@ impl Settings {
         *self.router.model.env.shortcut_capture.borrow_mut() = Some(Rc::new(capture));
     }
 
+    pub fn set_rule_windows(&self, windows: Vec<rift_protocol::AppRulePreviewWindow>) {
+        self.router.model.env.set_rule_windows(windows);
+    }
+
     pub fn new(
         ui: Ui,
         source: impl Into<Arc<ConfigSource>>,
@@ -429,6 +451,8 @@ impl Settings {
             installed_applications: RefCell::new(None),
             inventory: RefCell::default(),
             application_views: RefCell::default(),
+            rule_windows: RefCell::default(),
+            rule_views: RefCell::default(),
         });
         env.rebuild_applications();
         let host = Rc::new(PageHost::new(&ui));

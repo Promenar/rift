@@ -2490,6 +2490,8 @@ impl Reactor {
                     pins.map(|(id, display)| (id, display.to_owned())).collect()
                 };
                 let before = pins(&self.layout_manager.layout_engine);
+                let rules_changed = self.config.virtual_workspaces.app_rules
+                    != new_cfg.virtual_workspaces.app_rules;
                 let mut outcome = command_workflow::handle_config_updated(
                     &mut self.config,
                     &mut self.layout_manager,
@@ -2497,6 +2499,9 @@ impl Reactor {
                     &mut self.drag_manager,
                     new_cfg,
                 )?;
+                if rules_changed {
+                    outcome.absorb(self.reapply_app_rules_after_config_change());
+                }
                 let activated: HashSet<_> = pins(&self.layout_manager.layout_engine)
                     .into_iter()
                     .filter(|pin| !before.contains(pin))
@@ -5509,6 +5514,24 @@ impl Reactor {
         }
 
         true
+    }
+
+    /// Re-evaluate every tracked window against the current rule set. Used after
+    /// the rule list changes so enabling or disabling a rule takes effect on
+    /// already-open windows. Only active spaces are touched; other spaces pick
+    /// the new rules up when they next activate.
+    fn reapply_app_rules_after_config_change(&mut self) -> EventOutcome {
+        let mut by_pid: HashMap<i32, Vec<WindowId>> = HashMap::default();
+        for (wid, _) in self.state.windows.iter_windows() {
+            by_pid.entry(wid.pid).or_default().push(wid);
+        }
+        for (pid, window_ids) in by_pid {
+            let Some(app_info) = self.app_manager.apps.get(&pid).map(|app| app.info.clone()) else {
+                continue;
+            };
+            self.process_windows_for_app_rules(window_ids, app_info, false);
+        }
+        EventOutcome::layout_changed(false)
     }
 
     fn process_windows_for_app_rules(

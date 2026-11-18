@@ -4828,6 +4828,7 @@ mod tests {
     fn floating_app_rule_emits_one_shot_placement_and_switches_focus_workspace() {
         let mut settings = VirtualWorkspaceSettings::default();
         settings.app_rules = vec![AppWorkspaceRule {
+            enabled: true,
             app_id: Some("com.example.Tool".into()),
             workspace: Some(WorkspaceSelector::Index(1)),
             floating: true,
@@ -4989,6 +4990,7 @@ mod tests {
             display: None,
         }];
         settings.app_rules = vec![AppWorkspaceRule {
+            enabled: true,
             app_id: Some("com.example.Editor".into()),
             workspace: None,
             floating: false,

@@ -4,5 +4,5 @@
   "archive_url": "https://crates.io/api/v1/crates/cgs/0.5.2/download",
   "archive_sha256": "6f6d56081e7292f8abacfe3871475ae1d0d7a63fdceafa74105597dbe2a826fa",
   "purpose": "Rift 简体中文界面内建控件文案",
-  "changes": "仅本地化用户可见文案，保留原许可与行为"
+  "changes": "本地化用户可见文案；SettingsList 增加可选行尾开关（toggle/on_toggle），保留原许可与其余行为"
 }

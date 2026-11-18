@@ -214,6 +214,14 @@ impl RiftMachClient {
         self.request(RiftRequest::GetApplications)
     }
 
+    /// Evaluates a draft app-rule set against every tracked window.
+    pub fn preview_app_rules(
+        &self,
+        rules: Vec<AppRuleMatcher>,
+    ) -> Result<Vec<AppRulePreviewWindow>, ClientError> {
+        self.request(RiftRequest::PreviewAppRules { rules })
+    }
+
     /// Returns the active binding mode name.
     pub fn get_binding_mode(&self) -> Result<String, ClientError> {
         self.request(RiftRequest::GetBindingMode)

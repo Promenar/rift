@@ -130,9 +130,13 @@ pub struct WorkspaceLayoutRule {
 
 // Allow specifying a workspace by numeric index or by name in the config.
 // This supports both `workspace = 2` and `workspace = "coding"` in app rules.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, ConfigSchema)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, ConfigSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AppWorkspaceRule {
+    /// 规则是否参与匹配。停用后会被跳过，且不影响之后的规则。
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    #[setting(label = "启用", custom)]
+    pub enabled: bool,
     /// 应用 Bundle 标识符，例如 "com.apple.Terminal"。
     #[setting(custom)]
     pub app_id: Option<String>,
@@ -183,6 +187,27 @@ pub struct AppWorkspaceRule {
     #[doc(hidden)]
     #[setting(ignore)]
     pub window_tags: Option<u64>,
+}
+
+impl Default for AppWorkspaceRule {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            app_id: None,
+            workspace: None,
+            floating: false,
+            position: None,
+            size: None,
+            focus: false,
+            manage: None,
+            app_name: None,
+            title_regex: None,
+            title_substring: None,
+            ax_role: None,
+            ax_subrole: None,
+            window_tags: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -303,6 +328,9 @@ impl VirtualWorkspaceSettings {
         let mut seen_matchers: crate::common::collections::HashMap<_, usize> = Default::default();
 
         for (index, rule) in self.app_rules.iter().enumerate() {
+            if !rule.enabled {
+                continue;
+            }
             fn field(value: &Option<String>) -> Option<&str> {
                 value.as_deref().filter(|v| !v.is_empty())
             }
@@ -318,7 +346,7 @@ impl VirtualWorkspaceSettings {
             let first = *seen_matchers.entry(matcher).or_insert(index);
             if first != index {
                 issues.push(format!(
-                    "App rule {index} matches the same windows as rule {first}, so it never applies"
+                    "App rule {index} matches the same windows as earlier rule {first}; the earlier rule wins"
                 ));
             }
 
@@ -1834,6 +1862,8 @@ impl InnerGaps {
 }
 
 fn yes() -> bool { true }
+
+fn is_true(value: &bool) -> bool { *value }
 
 fn default_stack_offset() -> f64 { 40.0 }
 

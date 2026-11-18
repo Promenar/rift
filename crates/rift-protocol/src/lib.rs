@@ -22,8 +22,9 @@ pub use layout::{
     Direction, DirectionalDistance, LayoutKind, LayoutMode, Orientation, ResizeOrientation,
 };
 pub use queries::{
-    ApplicationData, ContainerNodeType, ContainerTreeNode, DisplayData, LayoutStateData, Point,
-    Rect, Size, WindowData, WindowId, WindowLayoutPosition, WorkspaceData, WorkspaceLayoutData,
+    AppRuleMatcher, AppRulePreviewWindow, ApplicationData, ContainerNodeType, ContainerTreeNode,
+    DisplayData, LayoutStateData, Point, Rect, Size, WindowData, WindowId, WindowLayoutPosition,
+    WorkspaceData, WorkspaceLayoutData,
 };
 pub use selectors::{DisplaySelector, RestoreScope, RestoreSource, WorkspaceSelector};
 pub use transport::{JsonRiftResponse, RiftRequest, RiftResponse, WindowClaimFlags};

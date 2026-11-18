@@ -82,6 +82,11 @@ pub enum RiftRequest {
         workspace_id: Option<usize>,
     },
     GetApplications,
+    /// Evaluate a draft app-rule set against every tracked window, in
+    /// configuration order. Used by the Settings rule editor.
+    PreviewAppRules {
+        rules: Vec<crate::AppRuleMatcher>,
+    },
     GetMetrics,
     GetBindingMode,
     /// Temporarily pass keys through to a foreground shortcut recorder. Ending is

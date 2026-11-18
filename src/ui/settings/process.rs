@@ -23,7 +23,8 @@ use objc2_app_kit::{
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSProcessInfo, NSString};
 use rift_client::{
-    ApplicationData, ClientError, DisplayData, RiftEvent, RiftMachClient, RiftRequest,
+    AppRuleMatcher, AppRulePreviewWindow, ApplicationData, ClientError, DisplayData, RiftEvent,
+    RiftMachClient, RiftRequest,
 };
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
@@ -42,6 +43,8 @@ enum Job {
     Reload,
     Apply(u64, Arc<ConfigSource>, SourceEdit),
     Runtime,
+    /// Draft rule preview, tagged with a sequence so stale replies are dropped.
+    PreviewRules(u64, Vec<AppRuleMatcher>),
 }
 
 /// Results delivered to the main thread.
@@ -55,6 +58,7 @@ enum Message {
     RefreshSettings,
     RefreshRuntime,
     Installed(Vec<(String, String)>),
+    RulePreview(u64, Vec<AppRulePreviewWindow>),
     Updated(updates::Result),
     Closed,
     /// The daemon is gone.
@@ -287,6 +291,7 @@ async fn open(
         stalled: None,
         runtime: (false, false),
         scan: None,
+        preview_seq: 0,
         update: None,
     };
     session.pump();
@@ -348,6 +353,8 @@ struct Session {
     runtime: (bool, bool),
     /// Completions awaiting installed-application discovery; `Some` while a scan runs.
     scan: Option<Vec<Finish>>,
+    /// Latest rule-preview request; older replies are ignored.
+    preview_seq: u64,
     update: Option<updates::Completion>,
 }
 
@@ -357,6 +364,11 @@ impl Session {
             Action::Edit(edit) => enqueue(&mut self.edits, control, Some(edit), finish),
             Action::Reload => enqueue(&mut self.edits, None, None, finish),
             Action::RefreshRuntime => return self.discover_applications(finish),
+            Action::PreviewRules(rules) => {
+                self.preview_seq += 1;
+                let _ = self.jobs.send(Job::PreviewRules(self.preview_seq, rules));
+                return finish(Ok(()));
+            }
             Action::CheckUpdates(done) => {
                 self.update = Some(done);
                 let messages = self.messages.clone();
@@ -427,6 +439,13 @@ impl Session {
                     settings.set_installed_applications(apps);
                 }
                 self.scan.take().into_iter().flatten().for_each(|finish| finish(Ok(())));
+            }
+            Message::RulePreview(seq, windows) => {
+                if seq == self.preview_seq
+                    && let Some(settings) = &self.settings
+                {
+                    settings.set_rule_windows(windows);
+                }
             }
             Message::Updated(result) => {
                 if let Some(done) = self.update.take() {
@@ -576,6 +595,17 @@ fn serve(jobs: mpsc::Receiver<Job>, messages: UnboundedSender<Message>) {
             Job::Reload => source(&client, RiftRequest::ReloadSettingsSource),
             Job::Apply(expected_revision, base, edit) => {
                 apply(&client, expected_revision, base, edit)
+            }
+            Job::PreviewRules(seq, rules) => {
+                match call::<Vec<AppRulePreviewWindow>>(&client, &RiftRequest::PreviewAppRules {
+                    rules,
+                }) {
+                    Ok(windows) => Message::RulePreview(seq, windows),
+                    Err(error) => {
+                        tracing::warn!(%error, "Could not preview app rules");
+                        Message::RulePreview(seq, Vec::new())
+                    }
+                }
             }
         };
         super::timing::finish(timing, stage);

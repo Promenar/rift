@@ -175,7 +175,7 @@ const MANUAL: &[(Category, Option<LayoutMode>, &str, &str, &str)] = &[
         None,
         "规则",
         "应用规则",
-        "App rules 应用规则 application bundle identifier manage ignore floating window title match workspace assign desktop",
+        "App rules 应用规则 application bundle identifier manage ignore floating window title match workspace assign desktop enabled disabled 启用 停用 优先级 顺序 命中预览 priority order preview",
     ),
     (
         Keyboard,

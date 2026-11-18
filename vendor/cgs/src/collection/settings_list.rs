@@ -20,6 +20,7 @@ struct SettingsCellContent {
     trailing: Option<Rc<Label>>,
     icon: Option<Retained<NSImageView>>,
     button: Option<Rc<crate::controls::Button>>,
+    switch: Option<Rc<crate::controls::Switch>>,
     divider: Rc<crate::layout::Divider>,
     index: Rc<Cell<usize>>,
 }
@@ -39,6 +40,7 @@ impl SettingsListCell {
         navigation: bool,
         external: bool,
         opens: bool,
+        toggle: Option<Rc<RefCell<Box<dyn FnMut(usize, bool)>>>>,
     ) -> Retained<Self> {
         let title = Rc::new(Label::new(ui, ""));
         let summary = (!inline).then(|| Rc::new(crate::text::Caption::single_line(ui, "")));
@@ -85,6 +87,17 @@ impl SettingsListCell {
             button.width(16.0);
             button
         });
+        let switch = toggle.map(|callback| {
+            let index = index.clone();
+            Rc::new(
+                crate::controls::Switch::new(ui)
+                    .compact()
+                    .on_change(move |value| {
+                        let mut callback = callback.borrow_mut();
+                        (*callback)(index.get(), value);
+                    }),
+            )
+        });
         let mut row = crate::layout::HStack::new(ui).insets(crate::Insets {
             top: 8.0,
             left: 12.0,
@@ -109,6 +122,10 @@ impl SettingsListCell {
         if let Some(button) = &button {
             row = row.push(button.clone());
         }
+        if let Some(switch) = &switch {
+            switch.ns_switch().setAccessibilityElement(true);
+            row = row.push(switch.clone());
+        }
         let divider = Rc::new(crate::layout::Divider::new(ui));
         let content = row;
         let native: Retained<Self> = unsafe {
@@ -120,6 +137,7 @@ impl SettingsListCell {
                     trailing,
                     icon,
                     button,
+                    switch,
                     divider,
                     index,
                 })),
@@ -160,6 +178,7 @@ impl SettingsListCell {
         symbol: Option<&str>,
         index: usize,
         count: usize,
+        toggle: Option<bool>,
     ) {
         let cell = self.ivars();
         cell.index.set(index);
@@ -183,6 +202,17 @@ impl SettingsListCell {
         if let Some(button) = &cell.button {
             button.accessibility_label(&format!("打开{name}"));
         }
+        if let Some(switch) = &cell.switch {
+            if let Some(value) = toggle {
+                switch.set_value(value);
+                switch.ns_switch().setHidden(false);
+                switch.ns_switch().setAccessibilityLabel(Some(&NSString::from_str(&format!(
+                    "启用{name}"
+                ))));
+            } else {
+                switch.ns_switch().setHidden(true);
+            }
+        }
         cell.divider.set_hidden(index + 1 == count);
     }
 }
@@ -204,6 +234,8 @@ pub struct SettingsList<T: 'static> {
     trailing_summary: Rc<Cell<bool>>,
     navigation: Rc<Cell<bool>>,
     external: Rc<Cell<bool>>,
+    toggle: Rc<RefCell<Option<Box<dyn Fn(&T) -> bool>>>>,
+    on_toggle: Rc<RefCell<Option<Box<dyn FnMut(usize, bool)>>>>,
 }
 impl<T: 'static> SettingsList<T> {
     pub fn new(
@@ -228,6 +260,19 @@ impl<T: 'static> SettingsList<T> {
         let row_navigation = navigation.clone();
         let external = Rc::new(Cell::new(false));
         let row_external = external.clone();
+        let toggle: Rc<RefCell<Option<Box<dyn Fn(&T) -> bool>>>> =
+            Rc::new(RefCell::new(None));
+        let on_toggle: Rc<RefCell<Option<Box<dyn FnMut(usize, bool)>>>> =
+            Rc::new(RefCell::new(None));
+        let row_toggle = toggle.clone();
+        let row_toggle_state = toggle.clone();
+        let toggle_change = on_toggle.clone();
+        let toggle_dispatch: Rc<RefCell<Box<dyn FnMut(usize, bool)>>> =
+            Rc::new(RefCell::new(Box::new(move |index, value| {
+                if let Some(callback) = toggle_change.borrow_mut().as_mut() {
+                    callback(index, value);
+                }
+            })));
         let table = Table::new(ui).column("item", "", 0.0).on_double_click(move |index| {
             if let Some(open) = double_open.borrow_mut().as_mut() {
                 open(index);
@@ -250,6 +295,7 @@ impl<T: 'static> SettingsList<T> {
                         // Opening a sheet can synchronously ask AppKit to rebuild this cell
                         // while the open callback holds its mutable borrow.
                         opens.try_borrow().map_or(true, |open| open.is_some()),
+                        row_toggle.borrow().is_some().then(|| toggle_dispatch.clone()),
                     );
                     cell.setIdentifier(Some(&identifier));
                     cell
@@ -257,12 +303,14 @@ impl<T: 'static> SettingsList<T> {
             let rows = rows.borrow();
             let item = &rows[row];
             let symbol = row_symbol.borrow().as_ref().map(|symbol| symbol(item));
+            let toggle_value = row_toggle_state.borrow().as_ref().map(|toggle| toggle(item));
             cell.configure(
                 &title(item),
                 &summary(item),
                 symbol.as_deref(),
                 row,
                 cell_count.get(),
+                toggle_value,
             );
             if let Some(provider) = row_image.borrow().as_ref() {
                 if let Some(image) = provider(item) {
@@ -319,6 +367,8 @@ impl<T: 'static> SettingsList<T> {
             trailing_summary,
             navigation,
             external,
+            toggle,
+            on_toggle,
         }
     }
 
@@ -459,6 +509,19 @@ impl<T: 'static> SettingsList<T> {
 
     pub fn on_reorder(mut self, f: impl FnMut(usize, usize) + 'static) -> Self {
         self.table = self.table.on_reorder(f);
+        self
+    }
+
+    /// Show a compact switch at the end of each row. `value` reads the current
+    /// state for a row; `on_change` receives the row index and the new state.
+    pub fn toggle(
+        self,
+        value: impl Fn(&T) -> bool + 'static,
+        on_change: impl FnMut(usize, bool) + 'static,
+    ) -> Self {
+        *self.toggle.borrow_mut() = Some(Box::new(value));
+        *self.on_toggle.borrow_mut() = Some(Box::new(on_change));
+        self.table.ns_table_view().reloadData();
         self
     }
 }

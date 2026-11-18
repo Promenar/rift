@@ -96,6 +96,7 @@ fn app_rules_parse_placement_size_and_focus() {
     assert_eq!(rule.position, Some(AppRulePosition { x: 0.4, y: 0.7 }));
     assert_eq!(rule.size, Some(AppRuleSize { w: Some(640.0), h: Some(480.0) }));
     assert!(rule.focus);
+    assert!(rule.enabled, "rules default to enabled");
     assert!(settings.validate().is_empty());
 
     let height_only: VirtualWorkspaceSettings = toml::from_str(
@@ -115,9 +116,31 @@ fn app_rules_parse_placement_size_and_focus() {
 }
 
 #[test]
+fn app_rule_enabled_defaults_true_and_only_serializes_when_disabled() {
+    let defaulted: VirtualWorkspaceSettings =
+        toml::from_str(r#"app_rules = [{ app_id = "com.example.Tool" }]"#).unwrap();
+    assert!(defaulted.app_rules[0].enabled);
+
+    let disabled: VirtualWorkspaceSettings =
+        toml::from_str(r#"app_rules = [{ app_id = "com.example.Tool", enabled = false }]"#)
+            .unwrap();
+    assert!(!disabled.app_rules[0].enabled);
+
+    // Enabled is the default, so it is omitted from the serialized document.
+    let value = toml::Value::try_from(&defaulted).unwrap();
+    let rule = &value["app_rules"].as_array().unwrap()[0];
+    assert!(rule.get("enabled").is_none());
+
+    let value = toml::Value::try_from(&disabled).unwrap();
+    let rule = &value["app_rules"].as_array().unwrap()[0];
+    assert_eq!(rule.get("enabled").and_then(toml::Value::as_bool), Some(false));
+}
+
+#[test]
 fn app_rule_geometry_validation_rejects_invalid_values() {
     let mut settings = VirtualWorkspaceSettings::default();
     settings.app_rules.push(AppWorkspaceRule {
+        enabled: true,
         app_id: Some("com.example.Tool".into()),
         workspace: None,
         floating: false,

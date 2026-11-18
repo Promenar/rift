@@ -182,8 +182,7 @@ pub(crate) struct AppRuleWorkspaceFocus {
 }
 
 #[derive(Debug, Clone)]
-struct CompiledRule {
-    action: AppRuleDecision,
+struct Matchers {
     app_id: Option<String>,
     app_name: Option<String>,
     title_regex: Option<Regex>,
@@ -191,101 +190,20 @@ struct CompiledRule {
     ax_role: Option<String>,
     ax_subrole: Option<String>,
     window_tags: Option<u64>,
-    specificity: usize,
-    index: usize,
 }
 
-/// Compiles and evaluates app policy without depending on workspaces, windows,
-/// the reactor, or the layout engine.
-#[derive(Debug, Clone, Default)]
-pub struct AppRuleEngine {
-    rules_by_app_id: HashMap<String, Vec<CompiledRule>>,
-    wildcard_rules: Vec<CompiledRule>,
-}
-
-impl AppRuleEngine {
-    pub fn new(rules: &[AppWorkspaceRule]) -> Self {
-        let mut engine = Self::default();
-        for (index, rule) in rules.iter().cloned().enumerate() {
-            let Some(rule) = CompiledRule::new(index, rule) else {
-                continue;
-            };
-            if let Some(app_id) = rule.app_id.clone() {
-                engine.rules_by_app_id.entry(app_id).or_default().push(rule);
-            } else {
-                engine.wildcard_rules.push(rule);
-            }
-        }
-        engine
-    }
-
-    pub fn uses_window_tags(&self) -> bool {
-        self.wildcard_rules
-            .iter()
-            .chain(self.rules_by_app_id.values().flatten())
-            .any(|rule| rule.window_tags.is_some())
-    }
-
-    pub fn evaluate(&self, context: WindowRuleContext<'_>) -> Option<AppRuleDecision> {
-        self.matching_rule(context).map(|rule| rule.action.clone())
-    }
-
-    /// Re-evaluate rules after a title change without letting a title-independent
-    /// fallback reassert its initial workspace placement.
-    pub fn evaluate_for_title_change(
-        &self,
-        context: WindowRuleContext<'_>,
-    ) -> Option<AppRuleDecision> {
-        self.matching_rule(context).map(|rule| {
-            let mut decision = rule.action.clone();
-            if !rule.matches_title() {
-                decision.workspace = None;
-                decision.focus = false;
-            }
-            decision
-        })
-    }
-
-    fn matching_rule(&self, context: WindowRuleContext<'_>) -> Option<&CompiledRule> {
-        let app_id = context.app_bundle_id.map(str::to_ascii_lowercase);
-        let app_name = context.app_name.map(str::to_lowercase);
-        let title = context.window_title.map(str::to_lowercase);
-        self.wildcard_rules
-            .iter()
-            .chain(
-                app_id
-                    .as_ref()
-                    .and_then(|id| self.rules_by_app_id.get(id))
-                    .into_iter()
-                    .flatten(),
-            )
-            .filter(|rule| {
-                rule.matches(context, app_id.as_deref(), app_name.as_deref(), title.as_deref())
-            })
-            // More matcher fields win; configuration order is the deterministic tie-breaker.
-            .max_by_key(|rule| (rule.specificity, std::cmp::Reverse(rule.index)))
-    }
-}
-
-impl CompiledRule {
-    fn matches_title(&self) -> bool { self.title_regex.is_some() || self.title_substring.is_some() }
-
-    fn new(index: usize, rule: AppWorkspaceRule) -> Option<Self> {
-        let AppWorkspaceRule {
-            app_id,
-            workspace,
-            floating,
-            position,
-            size,
-            focus,
-            manage,
-            app_name,
-            title_regex,
-            title_substring,
-            ax_role,
-            ax_subrole,
-            window_tags,
-        } = rule;
+impl Matchers {
+    /// Compiles the matcher fields, returning `None` when the rule cannot match
+    /// anything (invalid regex, zero window tags, or no matcher at all).
+    fn compile(
+        app_id: Option<String>,
+        app_name: Option<String>,
+        title_regex: Option<String>,
+        title_substring: Option<String>,
+        ax_role: Option<String>,
+        ax_subrole: Option<String>,
+        window_tags: Option<u64>,
+    ) -> Option<Self> {
         if window_tags == Some(0) {
             return None;
         }
@@ -295,40 +213,10 @@ impl CompiledRule {
         let ax_role = nonempty(ax_role);
         let ax_subrole = nonempty(ax_subrole);
         let title_regex = match nonempty(title_regex) {
-            Some(pattern) => match RegexBuilder::new(&pattern).case_insensitive(true).build() {
-                Ok(regex) => Some(regex),
-                Err(error) => {
-                    warn!(%error, %pattern, index, "Ignoring app rule with invalid title regex");
-                    return None;
-                }
-            },
+            Some(pattern) => Some(RegexBuilder::new(&pattern).case_insensitive(true).build().ok()?),
             None => None,
         };
-        let specificity = [
-            app_id.is_some(),
-            app_name.is_some(),
-            title_regex.is_some(),
-            title_substring.is_some(),
-            ax_role.is_some(),
-            ax_subrole.is_some(),
-            window_tags.is_some(),
-        ]
-        .into_iter()
-        .filter(|present| *present)
-        .count();
-        if specificity == 0 {
-            warn!(index, "Ignoring app rule without a matcher");
-            return None;
-        }
-        Some(Self {
-            action: AppRuleDecision {
-                manage,
-                workspace,
-                floating,
-                position,
-                size,
-                focus,
-            },
+        let matchers = Self {
             app_id,
             app_name,
             title_regex,
@@ -336,12 +224,23 @@ impl CompiledRule {
             ax_role,
             ax_subrole,
             window_tags,
-            specificity,
-            index,
-        })
+        };
+        matchers.has_matcher().then_some(matchers)
     }
 
-    fn matches(
+    fn has_matcher(&self) -> bool {
+        self.app_id.is_some()
+            || self.app_name.is_some()
+            || self.title_regex.is_some()
+            || self.title_substring.is_some()
+            || self.ax_role.is_some()
+            || self.ax_subrole.is_some()
+            || self.window_tags.is_some()
+    }
+
+    fn matches_title(&self) -> bool { self.title_regex.is_some() || self.title_substring.is_some() }
+
+    fn matches_prepared(
         &self,
         context: WindowRuleContext<'_>,
         app_id: Option<&str>,
@@ -364,6 +263,175 @@ impl CompiledRule {
             && self
                 .window_tags
                 .is_none_or(|mask| context.window_tags.is_some_and(|tags| tags & mask == mask))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CompiledRule {
+    action: AppRuleDecision,
+    matchers: Matchers,
+    index: usize,
+}
+
+/// Compiles and evaluates app policy without depending on workspaces, windows,
+/// the reactor, or the layout engine.
+#[derive(Debug, Clone, Default)]
+pub struct AppRuleEngine {
+    rules_by_app_id: HashMap<String, Vec<CompiledRule>>,
+    wildcard_rules: Vec<CompiledRule>,
+}
+
+impl AppRuleEngine {
+    pub fn new(rules: &[AppWorkspaceRule]) -> Self {
+        let mut engine = Self::default();
+        for (index, rule) in rules.iter().cloned().enumerate() {
+            let Some(rule) = CompiledRule::new(index, rule) else {
+                warn!(index, "Ignoring invalid app rule");
+                continue;
+            };
+            if let Some(app_id) = rule.matchers.app_id.clone() {
+                engine.rules_by_app_id.entry(app_id).or_default().push(rule);
+            } else {
+                engine.wildcard_rules.push(rule);
+            }
+        }
+        engine
+    }
+
+    pub fn uses_window_tags(&self) -> bool {
+        self.wildcard_rules
+            .iter()
+            .chain(self.rules_by_app_id.values().flatten())
+            .any(|rule| rule.matchers.window_tags.is_some())
+    }
+
+    pub fn evaluate(&self, context: WindowRuleContext<'_>) -> Option<AppRuleDecision> {
+        self.evaluate_with_index(context).map(|(_, decision)| decision)
+    }
+
+    /// Evaluate the rule set and report which configuration entry won, so the
+    /// settings UI can explain the outcome.
+    pub fn evaluate_with_index(
+        &self,
+        context: WindowRuleContext<'_>,
+    ) -> Option<(usize, AppRuleDecision)> {
+        self.matching_rule(context).map(|rule| (rule.index, rule.action.clone()))
+    }
+
+    /// Re-evaluate rules after a title change without letting a title-independent
+    /// fallback reassert its initial workspace placement.
+    pub fn evaluate_for_title_change(
+        &self,
+        context: WindowRuleContext<'_>,
+    ) -> Option<AppRuleDecision> {
+        self.matching_rule(context).map(|rule| {
+            let mut decision = rule.action.clone();
+            if !rule.matchers.matches_title() {
+                decision.workspace = None;
+                decision.focus = false;
+            }
+            decision
+        })
+    }
+
+    fn matching_rule(&self, context: WindowRuleContext<'_>) -> Option<&CompiledRule> {
+        let app_id = context.app_bundle_id.map(str::to_ascii_lowercase);
+        let app_name = context.app_name.map(str::to_lowercase);
+        let title = context.window_title.map(str::to_lowercase);
+        self.wildcard_rules
+            .iter()
+            .chain(
+                app_id
+                    .as_ref()
+                    .and_then(|id| self.rules_by_app_id.get(id))
+                    .into_iter()
+                    .flatten(),
+            )
+            .filter(|rule| {
+                rule.matchers.matches_prepared(
+                    context,
+                    app_id.as_deref(),
+                    app_name.as_deref(),
+                    title.as_deref(),
+                )
+            })
+            // The first enabled rule in configuration order wins.
+            .min_by_key(|rule| rule.index)
+    }
+}
+
+/// Evaluate a draft rule set in configuration order and return the index of the
+/// first enabled rule that matches. Used by the settings preview, where the
+/// rules may not have been saved yet.
+pub fn preview_rule_index(
+    rules: &[rift_protocol::AppRuleMatcher],
+    context: WindowRuleContext<'_>,
+) -> Option<usize> {
+    let app_id = context.app_bundle_id.map(str::to_ascii_lowercase);
+    let app_name = context.app_name.map(str::to_lowercase);
+    let title = context.window_title.map(str::to_lowercase);
+    rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.enabled)
+        .find_map(|(index, rule)| {
+            let matchers = Matchers::compile(
+                rule.app_id.clone(),
+                rule.app_name.clone(),
+                rule.title_regex.clone(),
+                rule.title_substring.clone(),
+                rule.ax_role.clone(),
+                rule.ax_subrole.clone(),
+                rule.window_tags,
+            )?;
+            matchers
+                .matches_prepared(context, app_id.as_deref(), app_name.as_deref(), title.as_deref())
+                .then_some(index)
+        })
+}
+
+impl CompiledRule {
+    fn new(index: usize, rule: AppWorkspaceRule) -> Option<Self> {
+        let AppWorkspaceRule {
+            enabled,
+            app_id,
+            workspace,
+            floating,
+            position,
+            size,
+            focus,
+            manage,
+            app_name,
+            title_regex,
+            title_substring,
+            ax_role,
+            ax_subrole,
+            window_tags,
+        } = rule;
+        if !enabled {
+            return None;
+        }
+        let matchers = Matchers::compile(
+            app_id,
+            app_name,
+            title_regex,
+            title_substring,
+            ax_role,
+            ax_subrole,
+            window_tags,
+        )?;
+        Some(Self {
+            action: AppRuleDecision {
+                manage,
+                workspace,
+                floating,
+                position,
+                size,
+                focus,
+            },
+            matchers,
+            index,
+        })
     }
 }
 
@@ -450,16 +518,12 @@ mod tests {
     }
 
     #[test]
-    fn specificity_wins_then_earlier_configuration_order_breaks_ties() {
+    fn first_enabled_rule_in_configuration_order_wins() {
         let first = rule("com.example.Editor", 0);
-        let mut equally_specific = rule("com.example.Editor", 1);
-        equally_specific.title_substring = Some("project".into());
-        let mut most_specific = rule("com.example.Editor", 2);
-        most_specific.title_substring = Some("project".into());
-        most_specific.ax_role = Some("AXWindow".into());
-        let mut tied_later = most_specific.clone();
-        tied_later.workspace = Some(WorkspaceSelector::Index(3));
-        let engine = AppRuleEngine::new(&[first, equally_specific, most_specific, tied_later]);
+        let mut more_specific = rule("com.example.Editor", 2);
+        more_specific.title_substring = Some("project".into());
+        more_specific.ax_role = Some("AXWindow".into());
+        let engine = AppRuleEngine::new(&[first, more_specific]);
 
         let decision = engine
             .evaluate(WindowRuleContext {
@@ -469,7 +533,39 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        assert_eq!(decision.workspace, Some(WorkspaceSelector::Index(2)));
+        assert_eq!(
+            decision.workspace,
+            Some(WorkspaceSelector::Index(0)),
+            "an earlier generic rule wins over a later, more specific one"
+        );
+    }
+
+    #[test]
+    fn disabled_rules_are_skipped_and_the_winner_index_is_reported() {
+        let mut first = rule("com.example.Editor", 0);
+        first.enabled = false;
+        let second = rule("com.example.Editor", 1);
+        let engine = AppRuleEngine::new(&[first, second]);
+
+        let (index, decision) = engine
+            .evaluate_with_index(WindowRuleContext {
+                app_bundle_id: Some("com.example.editor"),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(index, 1);
+        assert_eq!(decision.workspace, Some(WorkspaceSelector::Index(1)));
+
+        let mut only_disabled = rule("com.example.Editor", 3);
+        only_disabled.enabled = false;
+        assert!(
+            AppRuleEngine::new(&[only_disabled])
+                .evaluate(WindowRuleContext {
+                    app_bundle_id: Some("com.example.editor"),
+                    ..Default::default()
+                })
+                .is_none()
+        );
     }
 
     #[test]
@@ -492,23 +588,26 @@ mod tests {
     }
 
     #[test]
-    fn title_change_does_not_reassert_workspace_from_non_title_fallback() {
+    fn title_change_strips_placement_only_when_the_winner_has_no_title_matcher() {
         let generic = rule("com.example.Editor", 1);
         let mut titled = rule("com.example.Editor", 2);
         titled.title_substring = Some("special".into());
         titled.size = Some(AppRuleSize { w: Some(80.0), h: None });
-        let engine = AppRuleEngine::new(&[generic, titled]);
 
-        let fallback = engine
+        // A generic winner first: placement is stripped after a title change.
+        let generic_first = AppRuleEngine::new(&[generic.clone(), titled.clone()]);
+        let fallback = generic_first
             .evaluate_for_title_change(WindowRuleContext {
                 app_bundle_id: Some("com.example.Editor"),
-                window_title: Some("ordinary window"),
+                window_title: Some("special window"),
                 ..Default::default()
             })
             .unwrap();
         assert_eq!(fallback.workspace, None);
 
-        let title_match = engine
+        // Title rules must be listed before the generic fallback to win.
+        let titled_first = AppRuleEngine::new(&[titled, generic]);
+        let title_match = titled_first
             .evaluate_for_title_change(WindowRuleContext {
                 app_bundle_id: Some("com.example.Editor"),
                 window_title: Some("special window"),
@@ -517,5 +616,14 @@ mod tests {
             .unwrap();
         assert_eq!(title_match.workspace, Some(WorkspaceSelector::Index(2)));
         assert_eq!(title_match.size, Some(AppRuleSize { w: Some(80.0), h: None }));
+
+        let ordinary = titled_first
+            .evaluate_for_title_change(WindowRuleContext {
+                app_bundle_id: Some("com.example.Editor"),
+                window_title: Some("ordinary window"),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(ordinary.workspace, None);
     }
 }

@@ -168,6 +168,56 @@ pub struct ApplicationData {
     pub window_count: usize,
 }
 
+/// A draft app rule supplied by Settings for a match preview. Only the matcher
+/// fields are needed; placement fields stay in the editor.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AppRuleMatcher {
+    #[serde(default = "rule_enabled_by_default")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_regex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_substring: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ax_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ax_subrole: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_tags: Option<u64>,
+}
+
+fn rule_enabled_by_default() -> bool { true }
+
+/// One tracked window with the result of evaluating a draft rule set.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AppRulePreviewWindow {
+    pub window_id: WindowId,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ax_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ax_subrole: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_tags: Option<u64>,
+    pub is_floating: bool,
+    pub frame: Rect,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_index: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_name: Option<String>,
+    /// Index into the supplied rule list, or `None` when nothing matches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_rule: Option<usize>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayoutStateData {
     pub space_id: u64,

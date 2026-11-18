@@ -5919,6 +5919,7 @@ fn fullscreen_startup_fixture(
     };
     if with_app_rule {
         workspace_cfg.app_rules = vec![crate::common::config::AppWorkspaceRule {
+            enabled: true,
             app_id: Some("com.testapp1".to_string()),
             workspace: Some(crate::common::config::WorkspaceSelector::Index(1)),
             floating: false,
