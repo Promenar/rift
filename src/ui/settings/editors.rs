@@ -1312,7 +1312,6 @@ fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView, slot: &Rc<RefCell<Opti
     );
 
     let query = Rc::new(RefCell::new(String::new()));
-    let rows: Rc<RefCell<Vec<Rc<rift_protocol::AppRulePreviewWindow>>>> = Rc::default();
     let dismissal: Rc<RefCell<Weak<Popover>>> = Rc::new(RefCell::new(Weak::new()));
     let list = SettingsList::<Rc<rift_protocol::AppRulePreviewWindow>>::new(
         &ui,
@@ -1322,12 +1321,12 @@ fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView, slot: &Rc<RefCell<Opti
     .full_length()
     .fit_content(260.0)
     .empty_message("没有打开的窗口")
-    .on_open({
+    // A picker should react to a single click, not only to the disclosure button.
+    .on_select_item({
         let weak_model = Rc::downgrade(model);
-        let rows = rows.clone();
         let dismissal = dismissal.clone();
-        move |row| {
-            let Some(window) = rows.borrow().get(row).cloned() else {
+        move |window: Option<Rc<rift_protocol::AppRulePreviewWindow>>| {
+            let Some(window) = window else {
                 return;
             };
             if let Some(popover) = dismissal.borrow().upgrade() {
@@ -1357,7 +1356,6 @@ fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView, slot: &Rc<RefCell<Opti
     let update: Rc<dyn Fn()> = {
         let weak_model = Rc::downgrade(model);
         let list = Rc::downgrade(&list);
-        let rows = rows.clone();
         let query = query.clone();
         Rc::new(move || {
             let (Some(model), Some(list)) = (weak_model.upgrade(), list.upgrade()) else {
@@ -1378,7 +1376,6 @@ fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView, slot: &Rc<RefCell<Opti
                 })
                 .map(Rc::new)
                 .collect();
-            *rows.borrow_mut() = next.clone();
             list.set_rows_if_changed(next);
         })
     };

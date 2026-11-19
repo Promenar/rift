@@ -2148,9 +2148,10 @@ fn late_runtime_populates_picker(
         matched_rule: None,
     }]);
     assert_eq!(list.numberOfRows(), 1, "preview windows populate an open picker");
-    let cell = list.viewAtColumn_row_makeIfNecessary(0, 0, true).unwrap();
-    let open = named::<objc2_app_kit::NSButton>(&cell, "打开Late Window").expect("row open button");
-    assert!(unsafe { open.sendAction_to(open.action(), open.target().as_deref()) });
+    list.selectRowIndexes_byExtendingSelection(
+        &objc2_foundation::NSIndexSet::indexSetWithIndex(0),
+        false,
+    );
     let draft = settings.model().sheet_model.borrow().as_ref().unwrap().clone();
     let rule = draft.source.borrow().virtual_workspaces.app_rules.last().cloned().unwrap();
     assert_eq!(rule.app_id.as_deref(), Some("dev.test.Late"));
