@@ -68,8 +68,8 @@
 2026-11-18 首次安装 v0.8.3 中文版，2026-11-19 原位更新：
 
 - 版本目录：`~/Library/Application Support/Rift/Versions/0.8.3-zh-cn-20261118-022151`
-- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+213e7971c543`
-- 二进制 SHA-256：`53590f92cbe21542fd0b46491c055e89ff8cb280ebe3ccfee11ddf5402f99c3a`
+- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+54c09399f36d`
+- 二进制 SHA-256：`78df4033d415fa0f9629d1bbdedea785513b7a638c09c7bb42121e6cf517aca0`
 - 二进制已用本机 `Apple Development` 证书签名，designated requirement 为「标识符 + 证书」，不再绑定 cdhash；用同一身份重新签名并替换后，辅助功能授权可继续沿用（2026-11-18 已实测：重建后 cdhash 变化，窗口接管无需重新授权）
 - 服务用 `rift service restart` 管理；`rift-cli service` 已提示迁到 `rift`
 - 用户配置、快捷键、应用规则与 LaunchAgent 未改；持久化布局快照在升级前备份
@@ -144,13 +144,13 @@ cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli 
 | 验证 | 结果 |
 | --- | --- |
 | `cargo check --locked -j 2` | 通过 |
-| `cargo test --locked --lib -j 2` | 917 项通过，0 失败 |
-| `cargo nextest run -E 'not binary(settings_native)'` | 920 项通过，0 失败 |
+| `cargo test --locked --lib -j 2` | 922 项通过，0 失败 |
+| `cargo nextest run -E 'not binary(settings_native)'` | 925 项通过，0 失败 |
 | `settings_native --ignored --keyboard` | 快捷键录制、冲突处理、目录选择通过 |
 | `settings_native --ignored --about` | 更新状态与请求清理通过 |
 | 设置页截图（`--render --page 0..10`） | 11 个页面均为中文渲染；规则页显示行内开关与命中预览；鼠标页显示切分修饰键 |
 | arm64 release 构建 | `rift` 与 `rift-cli` 生成成功 |
-| 安装运行（2026-11-19） | `rift --version` 为 `0.8.3+213e7971c543`；`rift-cli query rule-windows` 返回真实窗口与 AX 角色；签名重建后辅助功能授权仍有效；打开规则编辑 sheet 后忽略规则的窗口保持原尺寸、不重新接管 |
+| 安装运行（2026-11-19） | `rift --version` 为 `0.8.3+54c09399f36d`；简单模式下列表只有 1 个工作区、布局为 traditional；设置侧栏隐藏“工作区”，布局页只显示“传统平铺”，鼠标页不再显示“切分修饰键”；实测按住 Fn 从页签组拖出窗口到另一窗口边缘，无需 Shift 即拆成独立新组；辅助功能授权保留 |
 
 已知问题：`settings_native --ignored --verify` 在 `search replaces the sidebar` 断言失败，**纯上游 v0.8.3 在同一台机器上同样失败**，与本仓库汉化无关；该断言依赖搜索态下侧栏视图被替换的时序。快捷键与关于页另有独立入口，已单独通过。
 
