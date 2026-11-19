@@ -916,9 +916,11 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
     let weak = Rc::downgrade(model);
     let add_button = Button::new(&ui, "添加").symbol("plus");
     let anchor = WeakView::new(&add_button);
+    let popover_slot: Rc<RefCell<Option<Rc<Popover>>>> = Rc::default();
+    let slot = popover_slot.clone();
     let add = add_button.on_click(move || {
         if let Some(model) = weak.upgrade() {
-            add_rule(ui, &model, &anchor);
+            add_rule(ui, &model, &anchor, &slot);
         }
     });
     add.accessibility_label("添加应用规则…");
@@ -1075,12 +1077,10 @@ pub(super) fn rules(ui: Ui, model: &Rc<Model>) -> Page {
         })
     };
     model.env.on_rule_windows({
-        let update = Rc::downgrade(&update_preview);
+        let update = update_preview.clone();
         move || {
-            update.upgrade().is_some_and(|update| {
-                update();
-                true
-            })
+            update();
+            true
         }
     });
     let request_preview = {
@@ -1303,7 +1303,7 @@ fn rule_from_window(window: &rift_protocol::AppRulePreviewWindow) -> AppWorkspac
     }
 }
 
-fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView) {
+fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView, slot: &Rc<RefCell<Option<Rc<Popover>>>>) {
     // Refresh the window list the picker renders; late results arrive through
     // `Env::on_rule_windows`.
     model.env.send(
@@ -1404,6 +1404,7 @@ fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView) {
     content.width(420.0);
     let popover = Rc::new(Popover::new(&ui, content));
     *dismissal.borrow_mut() = Rc::downgrade(&popover);
+    *slot.borrow_mut() = Some(popover.clone());
     if let Some(view) = anchor.load() {
         popover.show(&view);
     }
