@@ -116,6 +116,27 @@ fn app_rules_parse_placement_size_and_focus() {
 }
 
 #[test]
+fn ignored_rules_must_not_carry_placement_effects() {
+    let mut settings = VirtualWorkspaceSettings::default();
+    settings.app_rules.push(AppWorkspaceRule {
+        enabled: true,
+        app_id: Some("com.example.Ignored".into()),
+        manage: Some(false),
+        ..AppWorkspaceRule::default()
+    });
+    assert!(
+        settings.validate().is_empty(),
+        "an ignored rule with no effects is valid"
+    );
+
+    settings.app_rules[0].floating = true;
+    assert!(
+        settings.validate().iter().any(|issue| issue.contains("忽略")),
+        "ignored rules reject placement effects"
+    );
+}
+
+#[test]
 fn app_rule_enabled_defaults_true_and_only_serializes_when_disabled() {
     let defaulted: VirtualWorkspaceSettings =
         toml::from_str(r#"app_rules = [{ app_id = "com.example.Tool" }]"#).unwrap();
@@ -160,9 +181,9 @@ fn app_rule_geometry_validation_rejects_invalid_values() {
     });
 
     let issues = settings.validate();
-    assert!(issues.iter().any(|issue| issue.contains("between 0 and 1")));
-    assert!(issues.iter().any(|issue| issue.contains("only applies")));
-    assert!(issues.iter().any(|issue| issue.contains("finite positive")));
+    assert!(issues.iter().any(|issue| issue.contains("0 到 1 之间")));
+    assert!(issues.iter().any(|issue| issue.contains("仅在浮动窗口上生效")));
+    assert!(issues.iter().any(|issue| issue.contains("有限正数")));
 }
 
 #[test]
@@ -179,8 +200,8 @@ fn app_rule_validation_reports_invalid_regex_and_ignored_effects() {
     });
 
     let issues = settings.validate();
-    assert!(issues.iter().any(|issue| issue.contains("invalid title_regex")));
-    assert!(issues.iter().any(|issue| issue.contains("effects are ignored")));
+    assert!(issues.iter().any(|issue| issue.contains("标题正则") && issue.contains("无效")));
+    assert!(issues.iter().any(|issue| issue.contains("忽略")));
 }
 
 #[test]

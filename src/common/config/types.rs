@@ -346,13 +346,16 @@ impl VirtualWorkspaceSettings {
             let first = *seen_matchers.entry(matcher).or_insert(index);
             if first != index {
                 issues.push(format!(
-                    "App rule {index} matches the same windows as earlier rule {first}; the earlier rule wins"
+                    "第 {} 条应用规则与第 {} 条匹配相同窗口；前面的规则优先生效",
+                    index + 1,
+                    first + 1
                 ));
             }
 
             if rule.window_tags.is_some_and(|mask| mask == 0 || mask > i64::MAX as u64) {
                 issues.push(format!(
-                    "App rule {index} window_tags must be between 1 and 9223372036854775807"
+                    "第 {} 条应用规则的 window_tags 必须在 1 到 9223372036854775807 之间",
+                    index + 1
                 ));
             }
 
@@ -366,8 +369,8 @@ impl VirtualWorkspaceSettings {
                 && rule.window_tags.is_none()
             {
                 issues.push(format!(
-                    "App rule {} needs at least one matching condition (application, title, Accessibility role, or raw window tags)",
-                    index
+                    "第 {} 条应用规则至少需要一个匹配条件（应用、标题、无障碍角色或原始窗口标签）",
+                    index + 1
                 ));
             }
 
@@ -375,8 +378,10 @@ impl VirtualWorkspaceSettings {
                 if let WorkspaceSelector::Index(idx) = workspace {
                     if *idx >= self.default_workspace_count {
                         issues.push(format!(
-                            "App rule {} references workspace {} but only {} workspaces will be created",
-                            index, idx, self.default_workspace_count
+                            "第 {} 条应用规则引用了工作区 {}，但只会创建 {} 个工作区",
+                            index + 1,
+                            idx,
+                            self.default_workspace_count
                         ));
                     }
                 }
@@ -389,53 +394,49 @@ impl VirtualWorkspaceSettings {
                     || !(0.0..=1.0).contains(&position.y)
                 {
                     issues.push(format!(
-                        "App rule {} position x and y must be finite values between 0 and 1",
-                        index
+                        "第 {} 条应用规则的位置 x、y 必须是 0 到 1 之间的有限数值",
+                        index + 1
                     ));
                 }
                 if !rule.floating {
                     issues.push(format!(
-                        "App rule {} specifies position, but position only applies when floating = true",
-                        index
+                        "第 {} 条应用规则设置了位置，但位置仅在浮动窗口上生效",
+                        index + 1
                     ));
                 }
             }
 
             if let Some(size) = rule.size {
                 if size.w.is_none() && size.h.is_none() {
-                    issues.push(format!(
-                        "App rule {} size must specify at least one of w or h",
-                        index
-                    ));
+                    issues.push(format!("第 {} 条应用规则至少需要指定宽度或高度", index + 1));
                 }
                 if size.w.is_some_and(|value| !value.is_finite() || value <= 0.0)
                     || size.h.is_some_and(|value| !value.is_finite() || value <= 0.0)
                 {
-                    issues.push(format!(
-                        "App rule {} size dimensions must be finite positive values",
-                        index
-                    ));
+                    issues.push(format!("第 {} 条应用规则的尺寸必须是有限正数", index + 1));
                 }
             }
 
             if let Some(ref app_id) = rule.app_id {
                 if !app_id.is_empty() && !app_id.contains('.') {
                     issues.push(format!(
-                        "App rule {} has suspicious app_id '{}' (should be bundle identifier like 'com.example.app')",
-                        index, app_id
+                        "第 {} 条应用规则的 app_id '{}' 看起来不是 Bundle 标识符（应形如 'com.example.app'）",
+                        index + 1, app_id
                     ));
                 }
             }
 
             if let Some(ref title_re) = rule.title_regex {
                 if title_re.is_empty() {
-                    issues.push(format!("App rule {} has empty title_regex", index));
+                    issues.push(format!("第 {} 条应用规则的标题正则为空", index + 1));
                 } else if let Err(error) =
                     RegexBuilder::new(title_re).case_insensitive(true).build()
                 {
                     issues.push(format!(
-                        "App rule {} has invalid title_regex '{}': {}",
-                        index, title_re, error
+                        "第 {} 条应用规则的标题正则 '{}' 无效：{}",
+                        index + 1,
+                        title_re,
+                        error
                     ));
                 }
             }
@@ -448,19 +449,19 @@ impl VirtualWorkspaceSettings {
                     || rule.focus)
             {
                 issues.push(format!(
-                    "App rule {} sets manage = false, so its workspace, floating, position, size, and focus effects are ignored",
-                    index
+                    "第 {} 条应用规则设置了“忽略”，工作区、浮动、位置、尺寸与聚焦设置不会生效",
+                    index + 1
                 ));
             }
 
             if rule.title_substring.as_deref() == Some("") {
-                issues.push(format!("App rule {} has empty title_substring", index));
+                issues.push(format!("第 {} 条应用规则的标题子串为空", index + 1));
             }
             if rule.ax_role.as_deref() == Some("") {
-                issues.push(format!("App rule {} has empty ax_role", index));
+                issues.push(format!("第 {} 条应用规则的无障碍角色为空", index + 1));
             }
             if rule.ax_subrole.as_deref() == Some("") {
-                issues.push(format!("App rule {} has empty ax_subrole", index));
+                issues.push(format!("第 {} 条应用规则的无障碍子角色为空", index + 1));
             }
         }
 

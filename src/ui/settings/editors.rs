@@ -1636,6 +1636,19 @@ fn tag_label(name: &str) -> String {
 }
 
 fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
+    // 忽略的窗口不归 Rift 管理，放置类设置没有意义；打开时清掉可能残留的冲突值。
+    if let Some(rule) = Arc::make_mut(&mut model.source.borrow_mut())
+        .virtual_workspaces
+        .app_rules
+        .get_mut(i)
+        && rule.manage == Some(false)
+    {
+        rule.workspace = None;
+        rule.floating = false;
+        rule.position = None;
+        rule.size = None;
+        rule.focus = false;
+    }
     let mut f = FormBuilder::new(ui, model);
     let mut matches =
         Section::new(&ui, "匹配窗口").description("所有条件都必须匹配。应用留空则跨应用匹配。");
@@ -1779,39 +1792,38 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             }
         },
     );
-    let actions = Section::new(&ui, "窗口行为")
-        .row(f.switch(
-            "启用",
-            move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.enabled),
-            move |s, v| {
-                if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
-                    r.enabled = v;
+    let enabled_row = f.switch(
+        "启用",
+        move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.enabled),
+        move |s, v| {
+            if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
+                r.enabled = v;
+            }
+        },
+    );
+    let floating_row = f.switch(
+        "浮动",
+        move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.floating),
+        move |s, v| {
+            if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
+                r.floating = v;
+                if !v {
+                    r.position = None;
                 }
-            },
-        ))
-        .row(workspace)
-        .row(f.switch(
-            "浮动",
-            move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.floating),
-            move |s, v| {
-                if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
-                    r.floating = v;
-                    if !v {
-                        r.position = None;
-                    }
-                }
-            },
-        ))
-        .row(f.switch(
-            "聚焦窗口",
-            move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.focus),
-            move |s, v| {
-                if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
-                    r.focus = v;
-                }
-            },
-        ))
-        .row(f.popup(
+            }
+        },
+    );
+    let focus_row = f.switch(
+        "聚焦窗口",
+        move |s| s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.focus),
+        move |s, v| {
+            if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
+                r.focus = v;
+            }
+        },
+    );
+    let manage_row = f
+        .popup(
             "管理方式",
             vec![
                 ("自动", None),
@@ -1822,9 +1834,30 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
             move |s, v| {
                 if let Some(r) = s.virtual_workspaces.app_rules.get_mut(i) {
                     r.manage = v;
+                    if v == Some(false) {
+                        // 忽略优先于一切放置效果，直接清掉以免配置校验拒绝保存。
+                        r.workspace = None;
+                        r.floating = false;
+                        r.position = None;
+                        r.size = None;
+                        r.focus = false;
+                    }
                 }
             },
-        ).help("自动会管理普通窗口，并在适当时忽略特殊窗口；“管理”始终包含匹配窗口；“忽略”则排除它们。"));
+        )
+        .help("自动会管理普通窗口，并在适当时忽略特殊窗口；“管理”始终包含匹配窗口；“忽略”则排除它们，工作区、浮动、尺寸与聚焦设置随之失效。");
+    let ignored = move |s: &ConfigSource| {
+        s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.manage == Some(false))
+    };
+    f.enabled(&workspace, ignored);
+    f.enabled(&floating_row, ignored);
+    f.enabled(&focus_row, ignored);
+    let actions = Section::new(&ui, "窗口行为")
+        .row(enabled_row)
+        .row(workspace)
+        .row(floating_row)
+        .row(focus_row)
+        .row(manage_row);
     let mut geometry = Section::new(&ui, "初始尺寸与位置")
         .description("留空则沿用现有几何位置。位置仅适用于浮动窗口。");
     for (title, axis) in [
