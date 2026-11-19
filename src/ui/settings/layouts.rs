@@ -62,7 +62,12 @@ pub(super) struct Inspector {
 }
 impl Inspector {
     pub fn new(ui: Ui, model: &Rc<Model>) -> Rc<Self> {
-        let selected = model.source.borrow().settings.layout.mode;
+        let simple_mode = model.source.borrow().settings.simple_mode;
+        let selected = if simple_mode {
+            LayoutMode::Traditional
+        } else {
+            model.source.borrow().settings.layout.mode
+        };
         let inspector = Rc::new_cyclic(|weak: &Weak<Self>| {
             let mut tiles = Vec::new();
             let mut default_items = Vec::new();
@@ -74,6 +79,9 @@ impl Inspector {
                         inspector.select_target(Target::Layout(mode));
                     }
                 });
+                if simple_mode && mode != LayoutMode::Traditional {
+                    tile.set_hidden(true);
+                }
                 tile.ns_button()
                     .setAccessibilityHelp(Some(&objc2_foundation::NSString::from_str(&format!(
                         "显示{title}的设置，默认布局保持不变。"
@@ -122,6 +130,7 @@ impl Inspector {
                     .push(default_popup.clone()),
             );
             default_control.accessibility_label("默认布局");
+            default_control.set_hidden(simple_mode);
 
             let title = Label::new(&ui, "").font(&Font::title3());
             let summary = Caption::new(&ui, "").max_lines(2);
@@ -383,7 +392,11 @@ impl Inspector {
     /// Show the edited and default layouts on the tiles, header, menus and toolbar.
     fn update_selection(&self, source: &ConfigSource) {
         let mode = self.selected.get();
-        let default = source.settings.layout.mode;
+        let default = if source.settings.simple_mode {
+            LayoutMode::Traditional
+        } else {
+            source.settings.layout.mode
+        };
         if self.shown.replace(Some((mode, default))) == Some((mode, default)) {
             return;
         }
@@ -425,7 +438,10 @@ impl Inspector {
         }
         let source = model.source.borrow();
         self.update_selection(&source);
+        let simple_mode = source.settings.simple_mode;
+        self.default_control.set_hidden(simple_mode);
         for (tile, &(_, mode)) in self.tiles.iter().zip(pages::layouts()) {
+            tile.set_hidden(simple_mode && mode != LayoutMode::Traditional);
             let preview = tile.preview();
             preview.set_windows(
                 &sample(&source, mode, preview.canvas_size()),

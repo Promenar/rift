@@ -11,9 +11,10 @@ pub(super) struct SettingsSidebar {
 }
 
 impl SettingsSidebar {
-    pub(super) fn new(ui: &Ui, select: impl FnMut(Category) + 'static) -> Self {
+    pub(super) fn new(ui: &Ui, simple_mode: bool, select: impl FnMut(Category) + 'static) -> Self {
         let destinations = CATEGORIES
             .into_iter()
+            .filter(|(id, _, _)| !simple_mode || *id != Category::Workspaces)
             .map(|(id, title, symbol)| SettingsDestination {
                 id,
                 title,

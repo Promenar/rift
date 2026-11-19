@@ -277,6 +277,15 @@ pub fn handle_config_updated(
         "configuration reload rejected: {}",
         issues.join("; ")
     );
+    if layout.layout_engine.workspaces().simple_mode() != new_config.settings.simple_mode {
+        // Simple mode changes the workspace namespace and therefore takes effect
+        // on the next start; keep the running graph intact until then.
+        tracing::warn!(
+            current = layout.layout_engine.workspaces().simple_mode(),
+            requested = new_config.settings.simple_mode,
+            "simple_mode change takes effect after Rift restarts"
+        );
+    }
     let migration = layout
         .layout_engine
         .workspaces()
@@ -297,6 +306,7 @@ pub fn handle_config_updated(
         &config.virtual_workspaces,
         migration,
     );
+    layout.layout_engine.enforce_traditional_layouts(&state.windows);
 
     drag.update_config(config.settings.drag_drop);
 

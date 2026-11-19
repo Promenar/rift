@@ -18,6 +18,13 @@ animation_fps = 100.0
 # Default is true; uncomment to change.
 #default_disable = false
 
+# Simple mode
+# - Keeps traditional tiling and one workspace per display.
+# - Drag edges always split; the split modifier is ignored.
+# - Workspace switching, creating and layout-mode commands are disabled.
+# - Takes effect on startup; a layout snapshot with multiple workspaces is ignored.
+#simple_mode = false
+
 # Mouse/Focus behavior
 # - focus_follows_mouse: moving the mouse into a window focuses it
 # - mouse_follows_focus: when focus changes, move the mouse to the focused window

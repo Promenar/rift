@@ -25,7 +25,7 @@ use rift_protocol::ApplicationData;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::actor::config::SourceEdit;
-use crate::common::config::{ConfigSchema, ConfigSource};
+use crate::common::config::{ConfigSchema, ConfigSource, LayoutMode};
 use crate::sys::screen::ScreenInfo;
 
 mod applications;
@@ -471,8 +471,9 @@ impl Settings {
             routing: Cell::new(false),
         });
         let sidebar_timing = timing::start();
+        let simple_mode = router.model.source.borrow().settings.simple_mode;
         let weak_router = Rc::downgrade(&router);
-        let sidebar = Rc::new(SettingsSidebar::new(&ui, move |id| {
+        let sidebar = Rc::new(SettingsSidebar::new(&ui, simple_mode, move |id| {
             if let Some(router) = weak_router.upgrade()
                 && !router.routing.get()
             {
@@ -610,6 +611,7 @@ impl Drop for Settings {
 fn sidebar_pane(ui: Ui, router: &Rc<Router>, sidebar: Rc<SettingsSidebar>) -> View {
     let content = Rc::new(PageHost::new(&ui));
     content.set_cached_page(sidebar.clone());
+    let simple_mode = router.model.source.borrow().settings.simple_mode;
     let weak_router = Rc::downgrade(router);
     let open = Rc::new(move |entry: &'static search::Entry| {
         if let Some(router) = weak_router.upgrade() {
@@ -628,7 +630,14 @@ fn sidebar_pane(ui: Ui, router: &Rc<Router>, sidebar: Rc<SettingsSidebar>) -> Vi
             let Some(content) = weak_content.upgrade() else {
                 return;
             };
-            let hits = search::results(&query);
+            let hits: Vec<&'static search::Entry> = search::results(&query)
+                .into_iter()
+                .filter(|entry| {
+                    !simple_mode
+                        || (entry.page != Category::Workspaces
+                            && entry.layout.is_none_or(|mode| mode == LayoutMode::Traditional))
+                })
+                .collect();
             top.set(hits.first().copied());
             if hits.is_empty() {
                 content.set_cached_page(if query.trim().is_empty() {

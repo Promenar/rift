@@ -550,6 +550,17 @@ pub struct Settings {
         aliases = "floating startup automatic tiling"
     )]
     pub default_disable: bool,
+    /// 只保留传统平铺与每块显示器一个工作区，并让拖拽边缘直接拆分。
+    ///
+    /// 简单模式在启动时生效；包含多工作区的旧布局快照会被忽略，兼容的单工作区快照仍会恢复。
+    /// 关闭该选项并重启 Rift 可恢复完整功能。
+    #[serde(default)]
+    #[setting(
+        label = "简单模式",
+        group = "general",
+        aliases = "simple mode minimal single workspace traditional no shift"
+    )]
+    pub simple_mode: bool,
     #[serde(default = "yes")]
     /// 焦点变化时将指针移入获得焦点的窗口。
     #[setting(

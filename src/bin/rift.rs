@@ -196,20 +196,33 @@ Enable it in System Settings > Desktop & Dock (Mission Control) and restart Rift
 
     let mut layout = if opt.restore {
         let path = restore_file();
-        match LayoutEngine::load_for_startup_restore(path.clone()) {
-            Ok(layout) => layout,
+        let restored = match LayoutEngine::load_for_startup_restore(path.clone()) {
+            Ok(layout)
+                if !config.settings.simple_mode || layout.workspaces_are_simple_compatible() =>
+            {
+                Some(layout)
+            }
+            Ok(_) => {
+                eprintln!(
+                    "Simple mode ignores a layout snapshot with multiple workspaces per display; starting fresh."
+                );
+                None
+            }
             Err(error) => {
                 eprintln!(
                     "Could not restore master file at {}; starting with a fresh layout: {error}",
                     path.display()
                 );
-                LayoutEngine::new(
-                    &config.virtual_workspaces,
-                    &config.settings.layout,
-                    Some(broadcast_tx.clone()),
-                )
+                None
             }
-        }
+        };
+        restored.unwrap_or_else(|| {
+            LayoutEngine::new(
+                &config.virtual_workspaces,
+                &config.settings.layout,
+                Some(broadcast_tx.clone()),
+            )
+        })
     } else {
         LayoutEngine::new(
             &config.virtual_workspaces,
@@ -217,6 +230,7 @@ Enable it in System Settings > Desktop & Dock (Mission Control) and restart Rift
             Some(broadcast_tx.clone()),
         )
     };
+    layout.set_simple_mode(config.settings.simple_mode);
     if let Err(error) = layout.finish_loading(
         &config.virtual_workspaces,
         &config.settings.layout,

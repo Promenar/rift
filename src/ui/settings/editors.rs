@@ -1653,6 +1653,7 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
         rule.focus = false;
     }
     let mut f = FormBuilder::new(ui, model);
+    let simple_mode = model.source.borrow().settings.simple_mode;
     let mut matches =
         Section::new(&ui, "匹配窗口").description("所有条件都必须匹配。应用留空则跨应用匹配。");
     let existing = model
@@ -1852,15 +1853,14 @@ fn rule_detail(ui: Ui, model: &Rc<Model>, i: usize) -> Page {
     let ignored = move |s: &ConfigSource| {
         s.virtual_workspaces.app_rules.get(i).is_some_and(|r| r.manage == Some(false))
     };
-    f.enabled(&workspace, ignored);
     f.enabled(&floating_row, ignored);
     f.enabled(&focus_row, ignored);
-    let actions = Section::new(&ui, "窗口行为")
-        .row(enabled_row)
-        .row(workspace)
-        .row(floating_row)
-        .row(focus_row)
-        .row(manage_row);
+    let mut actions = Section::new(&ui, "窗口行为").row(enabled_row);
+    if !simple_mode {
+        f.enabled(&workspace, ignored);
+        actions = actions.row(workspace);
+    }
+    let actions = actions.row(floating_row).row(focus_row).row(manage_row);
     let mut geometry = Section::new(&ui, "初始尺寸与位置")
         .description("留空则沿用现有几何位置。位置仅适用于浮动窗口。");
     for (title, axis) in [

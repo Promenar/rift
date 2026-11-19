@@ -158,6 +158,13 @@ fn app_rule_enabled_defaults_true_and_only_serializes_when_disabled() {
 }
 
 #[test]
+fn simple_mode_defaults_off_and_round_trips() {
+    assert!(!Config::default().settings.simple_mode);
+    let settings: Settings = toml::from_str("simple_mode = true").unwrap();
+    assert!(settings.simple_mode);
+}
+
+#[test]
 fn app_rule_geometry_validation_rejects_invalid_values() {
     let mut settings = VirtualWorkspaceSettings::default();
     settings.app_rules.push(AppWorkspaceRule {

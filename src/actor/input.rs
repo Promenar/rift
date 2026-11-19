@@ -143,6 +143,8 @@ struct State {
     layout_mode_by_space: HashMap<SpaceId, crate::common::config::LayoutMode>,
     mouse_features_enabled: bool,
     mouse_settings: DragDropSettings,
+    /// Simple mode removes the split modifier: every drag edge is a split target.
+    simple_mode: bool,
     captured_button: Option<crate::actor::drag::MouseButton>,
     gesture_settings: super::gesture::Settings,
 }
@@ -165,6 +167,7 @@ impl Default for State {
             layout_mode_by_space: HashMap::default(),
             mouse_features_enabled: false,
             mouse_settings: DragDropSettings::default(),
+            simple_mode: false,
             captured_button: None,
             gesture_settings: super::gesture::Settings::new(&Config::default()),
         }
@@ -338,6 +341,7 @@ impl Input {
         state.focus_follows_mouse_config_enabled = config.settings.focus_follows_mouse;
         state.mouse_features_enabled = config.settings.drag_drop.enabled;
         state.mouse_settings = config.settings.drag_drop;
+        state.simple_mode = config.settings.simple_mode;
         state.disable_hotkey_active = disable_hotkey
             .as_ref()
             .map(|target| state.compute_disable_hotkey_active(target))
@@ -622,6 +626,7 @@ impl Input {
                     }
                     state.mouse_features_enabled = mouse_features_enabled;
                     state.mouse_settings = new_config.settings.drag_drop;
+                    state.simple_mode = new_config.settings.simple_mode;
                     let prev_active = state.disable_hotkey_active;
                     state.disable_hotkey_active = self
                         .disable_hotkey
@@ -927,9 +932,12 @@ impl Input {
                 if captured || self.native_motion_active.load(Ordering::Acquire) {
                     let split = {
                         let state = self.state.borrow();
-                        mouse_modifier_held(
-                            state.mouse_settings.split_modifier,
-                            CGEvent::flags(Some(event)),
+                        drag_split(
+                            state.simple_mode,
+                            mouse_modifier_held(
+                                state.mouse_settings.split_modifier,
+                                CGEvent::flags(Some(event)),
+                            ),
                         )
                     };
                     self.publish_drag_sample(point, split);
@@ -1148,7 +1156,10 @@ impl Input {
             && (state.captured_button.is_some()
                 || self.native_motion_active.load(Ordering::Acquire))
         {
-            let split = mouse_modifier_held(state.mouse_settings.split_modifier, flags);
+            let split = drag_split(
+                state.simple_mode,
+                mouse_modifier_held(state.mouse_settings.split_modifier, flags),
+            );
             self.publish_drag_sample(CGEvent::location(Some(event)), split);
         }
         if let Some(mut hotkey) = self.overview_hotkey.get() {
@@ -1510,6 +1521,9 @@ fn mouse_modifier_held(modifier: MouseModifier, flags: CGEventFlags) -> bool {
         }
     }
 }
+
+/// Simple mode treats every drag as if the split modifier were held.
+fn drag_split(simple_mode: bool, modifier_held: bool) -> bool { simple_mode || modifier_held }
 
 #[inline]
 fn mouse_move_sampling_profile(low_power_mode: bool) -> u64 {
@@ -2682,6 +2696,14 @@ mod tests {
 
         assert!(state.pressed_keys.is_empty());
         assert_eq!(state.current_flags, live_flags);
+    }
+
+    #[test]
+    fn simple_mode_always_enables_drag_splitting() {
+        assert!(drag_split(true, false));
+        assert!(drag_split(true, true));
+        assert!(!drag_split(false, false));
+        assert!(drag_split(false, true));
     }
 }
 

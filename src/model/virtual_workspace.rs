@@ -349,6 +349,9 @@ pub struct WorkspaceStore {
     pub(crate) settings: VirtualWorkspaceSettings,
     #[serde(skip)]
     pub layout_settings: LayoutSettings,
+    /// Startup-enforced simple profile: one workspace per display at most.
+    #[serde(skip)]
+    simple_mode: bool,
 }
 
 /// A rule's `display` only applies in global mode; say so rather than ignore it silently.
@@ -419,7 +422,7 @@ impl Default for WorkspaceStore {
 
 impl WorkspaceStore {
     pub(crate) fn effective_mode(&self) -> WorkspaceMode {
-        if self.single_display {
+        if self.simple_mode || self.single_display {
             WorkspaceMode::PerDisplay
         } else {
             self.settings.mode
@@ -696,6 +699,25 @@ impl WorkspaceStore {
             active_workspace_per_space: HashMap::default(),
             settings: config.clone(),
             layout_settings: layout_settings.clone(),
+            simple_mode: false,
+        }
+    }
+
+    pub(crate) fn set_simple_mode(&mut self, enabled: bool) { self.simple_mode = enabled; }
+
+    pub(crate) fn simple_mode(&self) -> bool { self.simple_mode }
+
+    /// Workspace count applied when a native space is seeded. Simple mode keeps
+    /// exactly one workspace; the configured count only applies otherwise.
+    fn effective_workspace_count(&self) -> usize {
+        self.effective_workspace_count_for(&self.settings)
+    }
+
+    fn effective_workspace_count_for(&self, config: &VirtualWorkspaceSettings) -> usize {
+        if self.simple_mode {
+            1
+        } else {
+            config.default_workspace_count.clamp(1, MAX_WORKSPACES)
         }
     }
 
@@ -717,13 +739,18 @@ impl WorkspaceStore {
         if !issues.is_empty() {
             return Err(issues.join("; "));
         }
-        let mode_changed = !restoring && self.settings.mode != config.mode;
+        let config_mode = if self.simple_mode {
+            WorkspaceMode::PerDisplay
+        } else {
+            config.mode
+        };
+        let mode_changed = !restoring && self.effective_mode() != config_mode;
         let mut plan = WorkspaceSettingsPlan {
             names: Vec::new(),
             additions: Vec::new(),
         };
         let mut seen = HashSet::default();
-        let namespace = |space| self.namespace(config.mode, space);
+        let namespace = |space| self.namespace(config_mode, space);
         let scope_ids =
             |space| self.catalog().filter(move |id| namespace(self[*id].space) == namespace(space));
         for space in self.initialized_spaces() {
@@ -731,7 +758,7 @@ impl WorkspaceStore {
             // remains usable. Reloading that catalog must remain valid; mode migrations
             // still cannot merge independent catalogs beyond the limit.
             if scope_ids(space).count() > MAX_WORKSPACES
-                && (mode_changed || config.mode != WorkspaceMode::Global)
+                && (mode_changed || config_mode != WorkspaceMode::Global)
             {
                 return Err(format!("workspace scope exceeds {MAX_WORKSPACES} workspaces"));
             }
@@ -741,7 +768,7 @@ impl WorkspaceStore {
         if restoring {
             for space in self.initialized_spaces() {
                 let count = scope_ids(space).count();
-                for index in 0..config.default_workspace_count {
+                for index in 0..self.effective_workspace_count_for(config) {
                     if index < config.workspace_names.len() || index >= count {
                         seen.insert((namespace(space), config.workspace_name(index)));
                     }
@@ -761,7 +788,7 @@ impl WorkspaceStore {
                     .map(|_| config.workspace_name(index))
                     .unwrap_or_else(|| workspace.name.clone())
             };
-            if (restoring && !configured) || (mode_changed && config.mode == WorkspaceMode::Global)
+            if (restoring && !configured) || (mode_changed && config_mode == WorkspaceMode::Global)
             {
                 let base = name.clone();
                 let mut suffix = 2;
@@ -786,7 +813,7 @@ impl WorkspaceStore {
                 continue;
             } // Empty global contexts remain empty.
             let total = planned.entry(namespace(space)).or_insert_with(|| scope_ids(space).count());
-            let missing = config.default_workspace_count.saturating_sub(*total);
+            let missing = self.effective_workspace_count_for(config).saturating_sub(*total);
             for index in *total..*total + missing {
                 let mut name = config.workspace_name(index);
                 let scope = namespace(space);
@@ -968,7 +995,7 @@ impl WorkspaceStore {
             self.repair_activation(space);
             return;
         }
-        let count = self.settings.default_workspace_count.clamp(1, MAX_WORKSPACES);
+        let count = self.effective_workspace_count();
         let selected = self.settings.default_workspace.min(count - 1);
         for index in 0..count {
             let id = self.append_default_workspace(space);
@@ -992,6 +1019,9 @@ impl WorkspaceStore {
     }
 
     pub(crate) fn resolve_layout_mode_for_workspace(&self, index: usize, name: &str) -> LayoutMode {
+        if self.simple_mode {
+            return LayoutMode::Traditional;
+        }
         self.matching_rules(index, name)
             .find_map(|rule| rule.layout)
             .unwrap_or(self.layout_settings.mode)
@@ -1147,6 +1177,11 @@ impl WorkspaceStore {
         space: SpaceId,
         name: Option<String>,
     ) -> Result<VirtualWorkspaceId, WorkspaceError> {
+        if self.simple_mode {
+            return Err(WorkspaceError::InconsistentState(
+                "Simple mode keeps a single workspace".into(),
+            ));
+        }
         if self.effective_mode() == WorkspaceMode::Global
             && self.scope_ids(space).count() >= MAX_WORKSPACES
         {
@@ -1701,6 +1736,35 @@ mod tests {
             }
             Err(e) => panic!("assign_window_with_app_info failed: {:?}", e),
         }
+    }
+
+    #[test]
+    fn simple_mode_seeds_one_traditional_workspace() {
+        let settings = VirtualWorkspaceSettings {
+            default_workspace_count: 4,
+            workspace_names: vec!["one".into(), "two".into(), "three".into(), "four".into()],
+            workspace_rules: vec![WorkspaceLayoutRule {
+                workspace: WorkspaceSelector::Index(0),
+                layout: Some(LayoutMode::Bsp),
+                display: None,
+            }],
+            ..Default::default()
+        };
+        let layouts = LayoutSettings {
+            mode: LayoutMode::MasterStack,
+            ..Default::default()
+        };
+        let mut store = WorkspaceStore::new_with_config(&settings, &layouts);
+        store.set_simple_mode(true);
+        let space = SpaceId::new(901);
+        store.ensure_space_initialized(space);
+        let ids = store.workspace_ids(space);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(store[ids[0]].layout_mode, LayoutMode::Traditional);
+        assert!(
+            store.create_workspace(space, None).is_err(),
+            "simple mode must not create another workspace"
+        );
     }
 
     fn assign(

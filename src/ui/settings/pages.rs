@@ -894,6 +894,7 @@ pub(super) fn align_form(view: &objc2_app_kit::NSView) {
 
 fn input(ui: Ui, model: &Rc<Model>) -> Page {
     let mut f = FormBuilder::new(ui, model);
+    let simple_mode = model.source.borrow().settings.simple_mode;
     let mut page = SettingsPage::new(&ui, "");
     let section = f.schema_section("聚焦", "pointer", |s| &s.settings, |s| &mut s.settings);
     page = page.section(section);
@@ -909,7 +910,9 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
         |s| &s.settings.gestures,
         |s| &mut s.settings.gestures,
     );
-    page = page.section(section.content(Disclosure::new(&ui, "高级轻扫设置", tuning)));
+    if !simple_mode {
+        page = page.section(section.content(Disclosure::new(&ui, "高级轻扫设置", tuning)));
+    }
     let mut section =
         Section::new(&ui, "滚动布局手势").description("这些手势用于导航滚动布局条带。");
     let mut tuning = Section::new(&ui, "");
@@ -932,6 +935,9 @@ fn input(ui: Ui, model: &Rc<Model>) -> Page {
     let mut section = Section::new(&ui, "拖放");
 
     for field in DragDropSettings::fields() {
+        if simple_mode && field.key == "split_modifier" {
+            continue;
+        }
         let row = match field.key {
             "modifier" => {
                 let row = f.text(

@@ -538,6 +538,9 @@ impl LayoutEngine {
         workspace_id: VirtualWorkspaceId,
         mode: LayoutMode,
     ) -> bool {
+        if self.workspaces.simple_mode() && mode != LayoutMode::Traditional {
+            return false;
+        }
         let (current_mode, selected_window, mut window_order) = {
             let Some(workspace) = self.workspaces.workspace_info(space, workspace_id) else {
                 return false;
@@ -1869,6 +1872,36 @@ impl LayoutEngine {
         }
     }
 
+    /// Startup-selected simple profile. Must be set before workspaces are seeded.
+    pub fn set_simple_mode(&mut self, enabled: bool) { self.workspaces.set_simple_mode(enabled); }
+
+    /// A simple-mode snapshot has at most one workspace per native space; only
+    /// such a snapshot can be restored without resurrecting the workspace UI.
+    pub fn workspaces_are_simple_compatible(&self) -> bool {
+        let mut spaces = std::collections::HashSet::new();
+        self.workspaces
+            .workspaces
+            .values()
+            .all(|workspace| spaces.insert(workspace.space))
+    }
+
+    /// Simple mode only exposes traditional tiling; rebuild any workspace that
+    /// was already using another layout when the mode was enabled at runtime.
+    pub fn enforce_traditional_layouts(&mut self, window_store: &WindowStore) {
+        if !self.workspaces.simple_mode() {
+            return;
+        }
+        let workspaces: Vec<_> = self
+            .workspaces
+            .workspaces
+            .iter()
+            .map(|(id, workspace)| (workspace.space, id))
+            .collect();
+        for (space, id) in workspaces {
+            self.switch_workspace_layout_mode(window_store, space, id, LayoutMode::Traditional);
+        }
+    }
+
     fn apply_app_rule_outcome(
         &mut self,
         window: WindowId,
@@ -2339,6 +2372,19 @@ impl LayoutEngine {
         visible_space_frames: &HashMap<SpaceId, CGRect>,
         command: LayoutCommand,
     ) -> EventResponse {
+        if self.workspaces.simple_mode()
+            && matches!(
+                &command,
+                LayoutCommand::NextWorkspace(_)
+                    | LayoutCommand::PrevWorkspace(_)
+                    | LayoutCommand::SwitchToWorkspace(_)
+                    | LayoutCommand::SwitchToLastWorkspace
+                    | LayoutCommand::CreateWorkspace
+                    | LayoutCommand::MoveWindowToWorkspace { .. }
+            )
+        {
+            return EventResponse::default();
+        }
         if !matches!(
             command,
             LayoutCommand::NextWindow
@@ -3207,6 +3253,9 @@ impl LayoutEngine {
         context: impl Into<crate::model::virtual_workspace::WorkspaceContext<'a>>,
         command: &LayoutCommand,
     ) -> EventResponse {
+        if self.workspaces.simple_mode() {
+            return EventResponse::default();
+        }
         let context = context.into();
         let space = context.space;
         match command {
@@ -4010,6 +4059,43 @@ mod tests {
         AppRulePosition, AppRuleSize, AppWorkspaceRule, LayoutMode, LayoutSettings,
         VirtualWorkspaceSettings, WorkspaceLayoutRule, WorkspaceSelector,
     };
+
+    #[test]
+    fn simple_mode_rejects_non_traditional_layout_switching() {
+        let mut engine = LayoutEngine::new(
+            &VirtualWorkspaceSettings::default(),
+            &LayoutSettings::default(),
+            None,
+        );
+        engine.set_simple_mode(true);
+        let store = WindowStore::default();
+        let space = SpaceId::new(92);
+        engine.workspaces_mut().ensure_space_initialized(space);
+        let workspace = engine.workspaces().active_workspace(space).unwrap();
+        assert_eq!(
+            engine.workspaces()[workspace].layout_mode,
+            LayoutMode::Traditional
+        );
+        assert!(!engine.switch_workspace_layout_mode(&store, space, workspace, LayoutMode::Bsp));
+        assert_eq!(
+            engine.workspaces()[workspace].layout_mode,
+            LayoutMode::Traditional
+        );
+    }
+
+    #[test]
+    fn simple_snapshot_compatibility_requires_one_workspace_per_space() {
+        let settings = VirtualWorkspaceSettings {
+            default_workspace_count: 1,
+            ..Default::default()
+        };
+        let mut engine = LayoutEngine::new(&settings, &LayoutSettings::default(), None);
+        let space = SpaceId::new(93);
+        engine.workspaces_mut().ensure_space_initialized(space);
+        assert!(engine.workspaces_are_simple_compatible());
+        engine.workspaces_mut().create_workspace(space, None).unwrap();
+        assert!(!engine.workspaces_are_simple_compatible());
+    }
 
     #[test]
     fn simultaneous_suspensions_keep_workspace_owners_through_inactive_returns_and_mode_changes() {
