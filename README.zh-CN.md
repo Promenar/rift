@@ -55,11 +55,11 @@
 
 ## 安装状态与回退
 
-2026-11-18 已在本机安装 v0.8.3 中文版：
+2026-11-18 首次安装 v0.8.3 中文版，2026-11-19 原位更新：
 
 - 版本目录：`~/Library/Application Support/Rift/Versions/0.8.3-zh-cn-20261118-022151`
-- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+06c06cc21cb7`
-- 二进制 SHA-256：`8831a35675acc9f393e5df361ec589ba49031c0c7f54e2edf5c9db05cf1fb6d7`
+- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+213e7971c543`
+- 二进制 SHA-256：`53590f92cbe21542fd0b46491c055e89ff8cb280ebe3ccfee11ddf5402f99c3a`
 - 二进制已用本机 `Apple Development` 证书签名，designated requirement 为「标识符 + 证书」，不再绑定 cdhash；用同一身份重新签名并替换后，辅助功能授权可继续沿用（2026-11-18 已实测：重建后 cdhash 变化，窗口接管无需重新授权）
 - 服务用 `rift service restart` 管理；`rift-cli service` 已提示迁到 `rift`
 - 用户配置、快捷键、应用规则与 LaunchAgent 未改；持久化布局快照在升级前备份
@@ -134,17 +134,17 @@ cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli 
 | 验证 | 结果 |
 | --- | --- |
 | `cargo check --locked -j 2` | 通过 |
-| `cargo test --locked --lib -j 2` | 915 项通过，0 失败 |
-| `cargo nextest run -E 'not binary(settings_native)'` | 918 项通过，0 失败 |
+| `cargo test --locked --lib -j 2` | 917 项通过，0 失败 |
+| `cargo nextest run -E 'not binary(settings_native)'` | 920 项通过，0 失败 |
 | `settings_native --ignored --keyboard` | 快捷键录制、冲突处理、目录选择通过 |
 | `settings_native --ignored --about` | 更新状态与请求清理通过 |
 | 设置页截图（`--render --page 0..10`） | 11 个页面均为中文渲染；规则页显示行内开关与命中预览；鼠标页显示切分修饰键 |
 | arm64 release 构建 | `rift` 与 `rift-cli` 生成成功 |
-| 安装运行（2026-11-18） | `rift --version` 为 `0.8.3+bcd9df8a1021`；`rift-cli query rule-windows` 返回真实窗口与 AX 角色；`windows_managed` 5；签名重建后辅助功能授权仍有效 |
+| 安装运行（2026-11-19） | `rift --version` 为 `0.8.3+213e7971c543`；`rift-cli query rule-windows` 返回真实窗口与 AX 角色；签名重建后辅助功能授权仍有效；打开规则编辑 sheet 后忽略规则的窗口保持原尺寸、不重新接管 |
 
 已知问题：`settings_native --ignored --verify` 在 `search replaces the sidebar` 断言失败，**纯上游 v0.8.3 在同一台机器上同样失败**，与本仓库汉化无关；该断言依赖搜索态下侧栏视图被替换的时序。快捷键与关于页另有独立入口，已单独通过。
 
-构建产物位于 `target/aarch64-apple-darwin/release/`。本机工具链未安装 rustfmt，因此未运行格式化；编译、锁定依赖检查、单元测试、原生快捷键/关于验证、页面截图和 `git diff --check` 均已通过。
+构建产物位于 `target/aarch64-apple-darwin/release/`。`cargo +nightly fmt --all --check`、`cargo check --locked`、单元测试与 nextest 均已通过；原生快捷键/关于验证和页面截图按上文命令单独执行。
 
 ## 许可
 
