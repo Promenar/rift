@@ -188,7 +188,13 @@ impl MenuIcon {
         this
     }
 
-    pub fn update_config(&mut self, settings: &MenuBarSettings, hotkeys: &[(Hotkey, WmCommand)]) {
+    pub fn update_config(
+        &mut self,
+        settings: &MenuBarSettings,
+        hotkeys: &[(Hotkey, WmCommand)],
+        simple_mode: bool,
+    ) {
+        self.workspace_item.setHidden(simple_mode);
         let shortcuts = MenuShortcuts::from_hotkeys(hotkeys);
         set_menu_item_hotkey(&self.next_workspace_item, shortcuts.next_workspace.as_ref());
         set_menu_item_hotkey(&self.prev_workspace_item, shortcuts.prev_workspace.as_ref());

@@ -1284,7 +1284,10 @@ fn preview_summary(window: &rift_protocol::AppRulePreviewWindow) -> String {
 
 /// A rule that reproduces the picked window: app, title, accessibility role and
 /// the window's current placement become the matcher and action.
-fn rule_from_window(window: &rift_protocol::AppRulePreviewWindow) -> AppWorkspaceRule {
+fn rule_from_window(
+    window: &rift_protocol::AppRulePreviewWindow,
+    simple_mode: bool,
+) -> AppWorkspaceRule {
     AppWorkspaceRule {
         enabled: true,
         app_id: window.bundle_id.clone(),
@@ -1296,7 +1299,13 @@ fn rule_from_window(window: &rift_protocol::AppRulePreviewWindow) -> AppWorkspac
         // clears while a sheet or popover is attached; capturing them makes the
         // generated rule stop matching as soon as the window shows a modal.
         window_tags: None,
-        workspace: window.workspace_index.map(WorkspaceSelector::Index),
+        // Simple mode has one workspace per display; a workspace matcher would
+        // be invisible in the editor and meaningless at runtime.
+        workspace: if simple_mode {
+            None
+        } else {
+            window.workspace_index.map(WorkspaceSelector::Index)
+        },
         floating: window.is_floating,
         size: window.is_floating.then(|| AppRuleSize {
             w: Some(window.frame.size.width),
@@ -1338,7 +1347,7 @@ fn add_rule(ui: Ui, model: &Rc<Model>, anchor: &WeakView, slot: &Rc<RefCell<Opti
             let Some(model) = weak_model.upgrade() else {
                 return;
             };
-            let rule = rule_from_window(&window);
+            let rule = rule_from_window(&window, model.source.borrow().settings.simple_mode);
             record_editor(
                 ui,
                 &model,

@@ -106,7 +106,11 @@ impl Menu {
             .enabled
             .then(|| MenuIcon::new(mtm, action_tx.clone(), reactor_tx.clone(), &layout_folder));
         if let Some(icon) = &mut icon {
-            icon.update_config(&config.settings.ui.menu_bar, &config.keys);
+            icon.update_config(
+                &config.settings.ui.menu_bar,
+                &config.keys,
+                config.settings.simple_mode,
+            );
         }
         Self {
             icon,
@@ -268,7 +272,11 @@ impl Menu {
         }
 
         if let Some(icon) = &mut self.icon {
-            icon.update_config(&self.config.settings.ui.menu_bar, &self.config.keys);
+            icon.update_config(
+                &self.config.settings.ui.menu_bar,
+                &self.config.keys,
+                self.config.settings.simple_mode,
+            );
         }
 
         self.last_signature = None;
