@@ -1879,10 +1879,9 @@ impl LayoutEngine {
     /// such a snapshot can be restored without resurrecting the workspace UI.
     pub fn workspaces_are_simple_compatible(&self) -> bool {
         let mut spaces = std::collections::HashSet::new();
-        self.workspaces
-            .workspaces
-            .values()
-            .all(|workspace| spaces.insert(workspace.space))
+        self.workspaces.workspaces.values().all(|workspace| {
+            workspace.layout_mode == LayoutMode::Traditional && spaces.insert(workspace.space)
+        })
     }
 
     /// Simple mode only exposes traditional tiling; rebuild any workspace that
