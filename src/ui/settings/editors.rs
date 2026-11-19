@@ -1292,7 +1292,10 @@ fn rule_from_window(window: &rift_protocol::AppRulePreviewWindow) -> AppWorkspac
         title_substring: (!window.title.is_empty()).then(|| window.title.clone()),
         ax_role: window.ax_role.clone(),
         ax_subrole: window.ax_subrole.clone(),
-        window_tags: window.window_tags,
+        // Raw window tags carry transient capability bits that WindowServer
+        // clears while a sheet or popover is attached; capturing them makes the
+        // generated rule stop matching as soon as the window shows a modal.
+        window_tags: None,
         workspace: window.workspace_index.map(WorkspaceSelector::Index),
         floating: window.is_floating,
         size: window.is_floating.then(|| AppRuleSize {

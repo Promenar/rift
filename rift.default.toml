@@ -357,6 +357,9 @@ workspace_names = [
 #   - title_regex    : regular expression matched against the window title
 #   - title_substring: literal substring (case-sensitive) matched against the title
 #   - ax_role / ax_subrole: exact match against macOS Accessibility (AX) role/subrole
+#   - window_tags    : raw WindowServer tag mask; every selected bit must be present.
+#                      Full-screen capability bits are ignored because macOS clears them
+#                      temporarily while a sheet is attached to the window.
 #
 # Rule options:
 #   - enabled (boolean, default true): set to false to keep the rule but skip it while matching.

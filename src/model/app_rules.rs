@@ -7,6 +7,13 @@ use crate::common::collections::HashMap;
 use crate::common::config::{AppRulePosition, AppRuleSize, AppWorkspaceRule, WorkspaceSelector};
 use crate::model::VirtualWorkspaceId;
 use crate::sys::screen::SpaceId;
+use crate::sys::skylight::SLSWindowTags;
+
+/// WindowServer clears the full-screen capability bits while a window temporarily
+/// cannot enter full screen, such as while a sheet is attached. Rules captured
+/// from a window would otherwise stop matching each time a modal surface opens.
+const VOLATILE_TAG_BITS: u64 =
+    SLSWindowTags::FULL_SCREEN_CAPABLE.bits() | SLSWindowTags::FULL_SCREEN_TILE_CAPABLE.bits();
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WindowRuleContext<'a> {
@@ -260,9 +267,12 @@ impl Matchers {
                 .is_none_or(|rule| title.is_some_and(|actual| actual.contains(rule)))
             && self.ax_role.as_deref().is_none_or(|rule| context.ax_role == Some(rule))
             && self.ax_subrole.as_deref().is_none_or(|rule| context.ax_subrole == Some(rule))
-            && self
-                .window_tags
-                .is_none_or(|mask| context.window_tags.is_some_and(|tags| tags & mask == mask))
+            && self.window_tags.is_none_or(|mask| {
+                let mask = mask & !VOLATILE_TAG_BITS;
+                // A mask made only of capability bits expresses no durable
+                // constraint, so it must not depend on the transient value.
+                mask == 0 || context.window_tags.is_some_and(|tags| tags & mask == mask)
+            })
     }
 }
 
@@ -483,6 +493,53 @@ mod tests {
         assert_eq!(
             toml::from_str::<AppWorkspaceRule>(&encoded).unwrap().window_tags,
             Some(130)
+        );
+    }
+
+    #[test]
+    fn volatile_fullscreen_capability_bits_do_not_break_tag_matching() {
+        let captured = SLSWindowTags::DOCUMENT.bits()
+            | SLSWindowTags::FULL_SCREEN_CAPABLE.bits()
+            | SLSWindowTags::FULL_SCREEN_TILE_CAPABLE.bits();
+        let engine = AppRuleEngine::new(&[AppWorkspaceRule {
+            window_tags: Some(captured),
+            floating: true,
+            ..Default::default()
+        }]);
+        // Attaching a sheet clears FULL_SCREEN_CAPABLE on the window.
+        let during_sheet = captured & !SLSWindowTags::FULL_SCREEN_CAPABLE.bits();
+        assert!(
+            engine
+                .evaluate(WindowRuleContext {
+                    window_tags: Some(during_sheet),
+                    ..Default::default()
+                })
+                .is_some()
+        );
+        assert!(
+            engine
+                .evaluate(WindowRuleContext {
+                    window_tags: Some(SLSWindowTags::FLOATING.bits()),
+                    ..Default::default()
+                })
+                .is_none(),
+            "durable bits still have to match"
+        );
+
+        // A mask made only of capability bits cannot be enforced and must not
+        // depend on whichever transient value the window reports.
+        let caps_only = AppRuleEngine::new(&[AppWorkspaceRule {
+            window_tags: Some(VOLATILE_TAG_BITS),
+            floating: true,
+            ..Default::default()
+        }]);
+        assert!(
+            caps_only
+                .evaluate(WindowRuleContext {
+                    window_tags: Some(0),
+                    ..Default::default()
+                })
+                .is_some()
         );
     }
 
