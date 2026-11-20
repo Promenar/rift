@@ -758,6 +758,22 @@ fn scrolling_bounds(
     super::managers::ScrollingDisplayBounds::for_screen(screen.frame, &screens)
 }
 
+/// Decide whether a layout target still needs a native frame write.
+///
+/// A pending request for the same target is normally authoritative. Hidden
+/// stack members are the exception: their request can be dropped while they
+/// are ordered behind, leaving the observed frame stale even though the
+/// transaction target matches.
+fn needs_layout_frame(
+    current: CGRect,
+    target: CGRect,
+    pending: Option<CGRect>,
+    hidden: bool,
+) -> bool {
+    let pending_matches = pending.is_some_and(|frame| frame.same_as(target));
+    !((pending_matches && !hidden) || (pending.is_none() && target.same_as(current)))
+}
+
 impl AnimationManager {
     pub fn new() -> Self { Self::default() }
 
@@ -1032,6 +1048,19 @@ impl AnimationManager {
         else {
             return false;
         };
+        let visible_in_layout: HashSet<WindowId> = reactor
+            .layout_manager
+            .layout_engine
+            .workspaces()
+            .active_layout(space, active_ws)
+            .map(|layout| {
+                reactor.layout_manager.layout_engine.workspaces()[active_ws]
+                    .layout_system
+                    .visible_windows_in_layout(layout)
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         let mut anim = Animation::new(
             reactor.config.settings.animation_fps,
             reactor.config.settings.animation_duration,
@@ -1065,10 +1094,11 @@ impl AnimationManager {
             let window_server_id = window.info.sys_id;
             let pending = window_server_id
                 .and_then(|wsid| reactor.transaction_manager.get_target_frame(wsid));
-            // Matching the observed frame cannot cancel an older, different target.
-            if pending.is_some_and(|frame| frame.same_as(target_frame))
-                || (pending.is_none() && target_frame.same_as(current_frame))
-            {
+            let hidden = !visible_in_layout.contains(&wid);
+            // A visible window with a matching request is already on its way.
+            // A hidden stack member may have missed its request while ordered
+            // behind, so re-send while its observed frame still disagrees.
+            if !needs_layout_frame(current_frame, target_frame, pending, hidden) {
                 continue;
             }
             any_frame_changed = true;
@@ -1621,6 +1651,22 @@ mod tests {
         let mut animation = empty_animation();
         animation.add_window(handle, wid, from, to, TransactionId::default());
         animation
+    }
+
+    #[test]
+    fn hidden_stack_members_resend_a_matching_frame_target() {
+        let stale = rect(0.0, 0.0, 1000.0, 800.0);
+        let target = rect(0.0, 0.0, 900.0, 800.0);
+        assert!(
+            needs_layout_frame(stale, target, Some(target), true),
+            "a hidden stack member must retry a frame that never landed"
+        );
+        assert!(
+            !needs_layout_frame(stale, target, Some(target), false),
+            "a visible in-flight request stays authoritative"
+        );
+        assert!(needs_layout_frame(stale, target, None, false));
+        assert!(!needs_layout_frame(target, target, None, true));
     }
 
     fn transition_state(manager: &AnimationManager) -> Option<&ActiveAnimation> {
