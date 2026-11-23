@@ -13,7 +13,9 @@ use crate::layout_engine::systems::{
     LayoutSystem, WindowLayoutConstraints, reconcile_app_membership,
 };
 use crate::layout_engine::utils::compute_tiling_area;
-use crate::layout_engine::{Direction, LayoutId, LayoutKind, Orientation, ResizeOrientation};
+use crate::layout_engine::{
+    Direction, LayoutId, LayoutKind, Orientation, ResizeOrientation, ZoneColumn, ZoneDrop,
+};
 use crate::model::selection::*;
 use crate::model::tree::{self, NodeId, NodeMap, OwnedNode, Tree};
 use crate::sys::geometry::Round;
@@ -28,6 +30,12 @@ pub struct TraditionalLayoutSystem {
     window_insertion_point: WindowInsertionPoint,
     #[serde(skip, default)]
     equalize_nodes: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ZoneGroup {
+    windows: Vec<WindowId>,
+    selected: Option<WindowId>,
 }
 
 impl Default for TraditionalLayoutSystem {
@@ -337,6 +345,168 @@ impl TraditionalLayoutSystem {
         }
         self.select(source_node);
         true
+    }
+
+    /// Number of top-level tab groups and whether `source` shares its group
+    /// with another window. Used to size the screen-space drop grid.
+    pub(crate) fn zone_context_for_window(
+        &self,
+        layout: LayoutId,
+        source: WindowId,
+    ) -> Option<(usize, bool)> {
+        let groups = self.zone_groups(layout);
+        let source_group = groups.iter().find(|group| group.windows.contains(&source))?;
+        Some((groups.len(), source_group.windows.len() > 1))
+    }
+
+    fn zone_groups(&self, layout: LayoutId) -> Vec<ZoneGroup> {
+        let mut groups = Vec::new();
+        self.collect_zone_groups(layout, self.root(layout), &mut groups);
+        groups
+    }
+
+    fn collect_zone_groups(&self, layout: LayoutId, node: NodeId, groups: &mut Vec<ZoneGroup>) {
+        if self.layout(node).is_group() {
+            let windows: Vec<_> = node
+                .traverse_preorder(self.map())
+                .filter_map(|node| self.window_at(node))
+                .collect();
+            if !windows.is_empty() {
+                let selected = windows
+                    .iter()
+                    .copied()
+                    .find(|window| self.window_is_visible(layout, *window))
+                    .or_else(|| windows.first().copied());
+                groups.push(ZoneGroup { windows, selected });
+            }
+            return;
+        }
+        if let Some(window) = self.window_at(node) {
+            groups.push(ZoneGroup {
+                windows: vec![window],
+                selected: Some(window),
+            });
+            return;
+        }
+        for child in node.children(self.map()) {
+            self.collect_zone_groups(layout, child, groups);
+        }
+    }
+
+    /// Rebuild the active traditional layout into the screen-space columns of a
+    /// simple-mode drop. The source becomes its own group in `drop.cell`; the
+    /// remaining groups fill the other cells in reading order.
+    pub(crate) fn apply_zone_drop(
+        &mut self,
+        layout: LayoutId,
+        source: WindowId,
+        drop: ZoneDrop,
+    ) -> bool {
+        if !self.window_participates(source) || self.window_node(layout, source).is_none() {
+            return false;
+        }
+        let mut groups = self.zone_groups(layout);
+        let Some(source_index) = groups.iter().position(|group| group.windows.contains(&source))
+        else {
+            return false;
+        };
+        let mut source_group = groups.remove(source_index);
+        source_group.windows.retain(|window| *window != source);
+        if source_group.windows.is_empty() {
+            // The source was the group's last window: the group disappears.
+        } else {
+            if source_group.selected == Some(source) {
+                source_group.selected = source_group
+                    .windows
+                    .iter()
+                    .copied()
+                    .find(|window| self.window_is_visible(layout, *window))
+                    .or_else(|| source_group.windows.first().copied());
+            }
+            groups.insert(source_index.min(groups.len()), source_group);
+        }
+        let new_group = ZoneGroup {
+            windows: vec![source],
+            selected: Some(source),
+        };
+
+        let cell_count: usize = drop
+            .columns
+            .iter()
+            .map(|column| match column {
+                Some(ZoneColumn::Full) => 1,
+                Some(ZoneColumn::Split) => 2,
+                None => 0,
+            })
+            .sum();
+        if cell_count != groups.len() + 1 || drop.cell >= cell_count {
+            return false;
+        }
+        let mut assignments: Vec<Option<ZoneGroup>> = vec![None; cell_count];
+        assignments[drop.cell] = Some(new_group);
+        let mut remaining = groups.into_iter();
+        for slot in &mut assignments {
+            if slot.is_none() {
+                let Some(group) = remaining.next() else {
+                    return false;
+                };
+                *slot = Some(group);
+            }
+        }
+        if remaining.next().is_some() {
+            return false;
+        }
+
+        let root = self.root(layout);
+        let old_children: Vec<_> = root.children(self.map()).collect();
+        for child in old_children {
+            child.detach(&mut self.tree).remove();
+        }
+        self.set_layout(root, LayoutKind::Horizontal);
+        self.tree.data.layout.info[root].total = 0.0;
+
+        let mut cell = 0;
+        for column in drop.columns {
+            match column {
+                None => {}
+                Some(ZoneColumn::Full) => {
+                    let group = assignments[cell].take().expect("assigned zone cell");
+                    self.build_zone_group(layout, root, group);
+                    cell += 1;
+                }
+                Some(ZoneColumn::Split) => {
+                    let container = self.tree.mk_node().push_back(root);
+                    self.set_layout(container, LayoutKind::Vertical);
+                    for _ in 0..2 {
+                        let group = assignments[cell].take().expect("assigned zone cell");
+                        self.build_zone_group(layout, container, group);
+                        cell += 1;
+                    }
+                }
+            }
+        }
+        debug_assert_eq!(cell, cell_count);
+        if let Some(node) = self.window_node(layout, source) {
+            self.select(node);
+        }
+        true
+    }
+
+    fn build_zone_group(&mut self, layout: LayoutId, parent: NodeId, group: ZoneGroup) {
+        if let [window] = group.windows.as_slice() {
+            let node = self.tree.mk_node().push_back(parent);
+            self.tree.data.window.set_window(layout, node, *window);
+            return;
+        }
+        let stack = self.tree.mk_node().push_back(parent);
+        self.set_layout(stack, LayoutKind::HorizontalStack);
+        for window in group.windows {
+            let node = self.tree.mk_node().push_back(stack);
+            self.tree.data.window.set_window(layout, node, window);
+        }
+        if let Some(node) = group.selected.and_then(|window| self.window_node(layout, window)) {
+            self.select(node);
+        }
     }
 
     pub(crate) fn calculate_layout_for_node(
@@ -1525,6 +1695,15 @@ impl LayoutSystem for TraditionalLayoutSystem {
             return false;
         }
         self.apply_explicit_window_drop(layout, source, target, action)
+    }
+
+    fn apply_zone_drop(
+        &mut self,
+        layout: LayoutId,
+        source: WindowId,
+        drop: crate::layout_engine::ZoneDrop,
+    ) -> bool {
+        TraditionalLayoutSystem::apply_zone_drop(self, layout, source, drop)
     }
 
     fn toggle_tile_orientation(&mut self, layout: LayoutId) {
@@ -3236,6 +3415,69 @@ mod tests {
         assert_eq!(system.selected_window(layout), Some(w(3)));
         assert_eq!(system.window_in_direction(layout, Direction::Right), Some(w(1)));
         assert_eq!(system.window_in_direction(layout, Direction::Up), Some(w(3)));
+    }
+
+    #[test]
+    fn zone_drop_rebuilds_columns_and_keeps_remaining_tabs() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        let left = system.tree.mk_node().push_back(root);
+        system.set_layout(left, LayoutKind::HorizontalStack);
+        for idx in 1..=3 {
+            system.add_window_under(layout, left, w(idx));
+        }
+        let middle = system.tree.mk_node().push_back(root);
+        system.add_window_under(layout, middle, w(4));
+        let right = system.tree.mk_node().push_back(root);
+        system.add_window_under(layout, right, w(5));
+        system.select_window(layout, w(2));
+
+        assert!(system.apply_zone_drop(layout, w(2), ZoneDrop {
+            columns: [
+                Some(ZoneColumn::Split),
+                Some(ZoneColumn::Full),
+                Some(ZoneColumn::Full),
+            ],
+            cell: 0,
+        },));
+
+        let children: Vec<_> = system.root(layout).children(system.map()).collect();
+        assert_eq!(children.len(), 3);
+        assert_eq!(system.layout(children[0]), LayoutKind::Vertical);
+        let halves: Vec<_> = children[0].children(system.map()).collect();
+        assert_eq!(halves.len(), 2);
+        assert_eq!(system.window_at(halves[0]), Some(w(2)));
+        let remaining: Vec<_> = halves[1]
+            .traverse_preorder(system.map())
+            .filter_map(|node| system.window_at(node))
+            .collect();
+        assert_eq!(remaining, vec![w(1), w(3)]);
+        assert_eq!(system.window_at(children[1]), Some(w(4)));
+        assert_eq!(system.window_at(children[2]), Some(w(5)));
+        assert_eq!(system.selected_window(layout), Some(w(2)));
+    }
+
+    #[test]
+    fn zone_drop_with_a_single_window_group_replaces_its_cell() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        system.add_window_under(layout, root, w(1));
+        system.add_window_under(layout, root, w(2));
+        system.select_window(layout, w(1));
+
+        assert!(system.apply_zone_drop(layout, w(1), ZoneDrop {
+            columns: [Some(ZoneColumn::Full), Some(ZoneColumn::Full), None],
+            cell: 0,
+        },));
+
+        let children: Vec<_> = system.root(layout).children(system.map()).collect();
+        assert_eq!(children.len(), 2);
+        assert_eq!(system.window_at(children[0]), Some(w(1)));
+        assert_eq!(system.window_at(children[1]), Some(w(2)));
     }
 
     #[test]

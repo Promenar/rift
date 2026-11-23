@@ -273,6 +273,16 @@ pub trait LayoutSystem: Serialize + for<'de> Deserialize<'de> {
         false
     }
 
+    /// Rebuild the layout for a simple-mode screen-space drop.
+    fn apply_zone_drop(
+        &mut self,
+        _layout: LayoutId,
+        _source: WindowId,
+        _drop: crate::layout_engine::ZoneDrop,
+    ) -> bool {
+        false
+    }
+
     fn move_selection(&mut self, layout: LayoutId, direction: Direction) -> bool;
     /// Give the adjacent display priority over creating a new outer split.
     fn move_selection_with_display_neighbor(

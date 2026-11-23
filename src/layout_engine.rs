@@ -20,6 +20,25 @@ pub enum WindowDropAction {
     Insert(Direction),
     Move(Direction),
     ConsumeOrExpel(Direction),
+    /// Simple-mode screen-space drop: rebuild the workspace into the given
+    /// columns and place the source in the target cell.
+    Zone(ZoneDrop),
+}
+
+/// One column of a screen-space zone drop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneColumn {
+    Full,
+    Split,
+}
+
+/// A screen-space drop layout. `columns` is always three entries; `None`
+/// means the column is empty and collapses. `cell` indexes the cells in
+/// reading order (left to right, top to bottom within a split column).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ZoneDrop {
+    pub columns: [Option<ZoneColumn>; 3],
+    pub cell: usize,
 }
 
 impl From<crate::common::config::MouseDropAction> for WindowDropAction {

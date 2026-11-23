@@ -269,12 +269,25 @@ impl LayoutEngine {
         };
         self.forget_native_layout_for_window_id(request.source);
         self.native_layouts.remove(&workspace);
-        self.workspaces[workspace].layout_system.apply_window_drop(
-            layout,
-            request.source,
-            request.target,
-            request.action,
-        )
+        let system = &mut self.workspaces[workspace].layout_system;
+        if let crate::layout_engine::WindowDropAction::Zone(drop) = request.action {
+            return system.apply_zone_drop(layout, request.source, drop);
+        }
+        system.apply_window_drop(layout, request.source, request.target, request.action)
+    }
+
+    /// Top-level tab group count and whether `source` shares its group, used
+    /// by simple mode to size the screen-space drop grid.
+    pub(crate) fn zone_group_info(
+        &self,
+        space: SpaceId,
+        source: WindowId,
+    ) -> Option<(usize, bool)> {
+        let (workspace, layout) = self.workspaces.active_layout_for_space(space)?;
+        match &self.workspaces[workspace].layout_system {
+            LayoutSystemKind::Traditional(system) => system.zone_context_for_window(layout, source),
+            _ => None,
+        }
     }
 
     /// Validate a prospective drop on a workspace-local tree before touching membership.
@@ -436,6 +449,12 @@ impl LayoutEngine {
     ) -> Option<DropPreview> {
         if action == crate::layout_engine::WindowDropAction::Swap {
             return (source != target).then_some(DropPreview {
+                frame: target_frame,
+                same_slot: false,
+            });
+        }
+        if let crate::layout_engine::WindowDropAction::Zone(_) = action {
+            return Some(DropPreview {
                 frame: target_frame,
                 same_slot: false,
             });

@@ -2155,6 +2155,24 @@ impl Reactor {
                     }),
                     scene,
                 );
+                if tiled
+                    && action == crate::common::config::MouseAction::Move
+                    && self.layout_manager.layout_engine.workspaces().simple_mode()
+                    && let Some(space) = space
+                    && let Some((groups, source_has_others)) =
+                        self.layout_manager.layout_engine.zone_group_info(space, window)
+                    && let Some(screen) =
+                        self.space_state.screen_by_space(space).map(|screen| screen.frame)
+                {
+                    self.drag_manager.actor.set_zone_context(Some(
+                        crate::actor::drag::ZoneContext {
+                            screen,
+                            groups,
+                            source_has_others,
+                            space,
+                        },
+                    ));
+                }
                 self.drag_manager.sync_preview();
                 if tiled && action == crate::common::config::MouseAction::Move {
                     self.drag_manager.externally_controlled_window = Some(window);
@@ -4685,6 +4703,10 @@ impl Reactor {
             return;
         };
         while let Some(mut intent) = self.drag_manager.actor.intent() {
+            if matches!(intent.action, crate::layout_engine::WindowDropAction::Zone(_)) {
+                self.drag_manager.actor.set_preview(intent, Some(intent.frame));
+                break;
+            }
             if intent.window == source.window
                 && !matches!(intent.action, crate::layout_engine::WindowDropAction::Move(_))
             {

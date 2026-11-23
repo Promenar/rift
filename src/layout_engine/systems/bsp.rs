@@ -2230,7 +2230,8 @@ impl LayoutSystem for BspLayoutSystem {
             }
             crate::layout_engine::WindowDropAction::Swap
             | crate::layout_engine::WindowDropAction::Move(_)
-            | crate::layout_engine::WindowDropAction::ConsumeOrExpel(_) => {
+            | crate::layout_engine::WindowDropAction::ConsumeOrExpel(_)
+            | crate::layout_engine::WindowDropAction::Zone(_) => {
                 unreachable!()
             }
         }

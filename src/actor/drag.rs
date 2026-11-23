@@ -6,11 +6,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use objc2_core_foundation::{CGPoint, CGRect};
+use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 
 use crate::actor::app::WindowId;
 use crate::common::config::{DragDropSettings, MouseAction, MouseDropAction};
-use crate::layout_engine::{Direction, WindowDropAction};
+use crate::layout_engine::{Direction, WindowDropAction, ZoneColumn, ZoneDrop};
 pub use crate::model::drag::{
     DragCancel, DragCommit, DragKind, DragScene, DragSceneTarget, DragSource, DropIntent,
     DropTarget, DropZone,
@@ -33,6 +33,24 @@ pub struct DragMotion {
     pub point: CGPoint,
     /// Whether the configured split modifier is held for this sample.
     pub split: bool,
+}
+
+/// Simple-mode screen-space drop context. Candidate zones are derived from the
+/// display rectangle and the number of top-level groups, never from window
+/// frames.
+#[derive(Debug, Clone, Copy)]
+pub struct ZoneContext {
+    pub screen: CGRect,
+    pub groups: usize,
+    pub source_has_others: bool,
+    pub space: SpaceId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ZoneKind {
+    Full,
+    Top,
+    Bottom,
 }
 
 /// Latest-value transport with at most one outstanding actor wake.
@@ -75,6 +93,9 @@ pub struct Session {
     unavailable: Vec<(WindowId, DropZone, WindowDropAction)>,
     /// The split modifier state from the latest pointer sample.
     split_held: bool,
+    /// Simple-mode screen-space drop context; when set, window targets are
+    /// ignored entirely.
+    zone: Option<ZoneContext>,
     pub kind: DragKind,
 }
 
@@ -120,6 +141,7 @@ impl Session {
             target: TargetState::None,
             unavailable: Vec::new(),
             split_held: false,
+            zone: None,
             kind,
         }
     }
@@ -127,6 +149,45 @@ impl Session {
     fn invalidate_drop(&mut self) {
         self.target = TargetState::None;
         self.unavailable.clear();
+    }
+
+    /// Screen-space candidate for simple mode. Window frames never participate.
+    fn zone_intent(&self, zone: ZoneContext) -> Option<(DropIntent, CGRect)> {
+        let target = zone.groups + usize::from(zone.source_has_others);
+        if !(2..=6).contains(&target) {
+            return None;
+        }
+        let x = (self.pointer.x - zone.screen.origin.x) / zone.screen.size.width;
+        let y = (self.pointer.y - zone.screen.origin.y) / zone.screen.size.height;
+        if !(0.0..1.0).contains(&x) || !(0.0..1.0).contains(&y) {
+            return None;
+        }
+        let (col, kind) = if target == 2 {
+            (if x < 0.5 { 0 } else { 1 }, ZoneKind::Full)
+        } else {
+            let col = ((x * 3.0).floor() as usize).min(2);
+            let kind = if y < 0.30 {
+                ZoneKind::Top
+            } else if y > 0.70 {
+                ZoneKind::Bottom
+            } else {
+                ZoneKind::Full
+            };
+            (col, kind)
+        };
+        let columns = zone_columns(target, col, kind)?;
+        let cell = zone_cell_index(&columns, col, kind)?;
+        let rect = zone_cell_rect(zone.screen, &columns, cell)?;
+        Some((
+            DropIntent {
+                window: self.source.window,
+                space: zone.space,
+                frame: rect,
+                zone: DropZone::Center,
+                action: WindowDropAction::Zone(ZoneDrop { columns, cell }),
+            },
+            rect,
+        ))
     }
 }
 
@@ -188,8 +249,10 @@ impl DragActor {
     pub fn preview_target(&self) -> Option<DropTarget> {
         let session = self.session()?;
         if let Some(target) = session.target.validated() {
-            return (session.source.tiled || target.intent.action == WindowDropAction::Stack)
-                .then_some(target);
+            return (session.source.tiled
+                || target.intent.action == WindowDropAction::Stack
+                || matches!(target.intent.action, WindowDropAction::Zone(_)))
+            .then_some(target);
         }
         if !session.source.tiled
             || !matches!(session.target, TargetState::None)
@@ -222,8 +285,28 @@ impl DragActor {
             return false;
         }
         session.source.current_space = current_space;
+        if session.zone.is_some_and(|zone| Some(zone.space) != current_space) {
+            session.zone = None;
+        }
         session.invalidate_drop();
         true
+    }
+
+    /// Attach the simple-mode screen-space context after the reactor has
+    /// resolved the drag source and its workspace.
+    pub fn set_zone_context(&mut self, zone: Option<ZoneContext>) {
+        let State::Dragging(session) = &mut self.state else {
+            return;
+        };
+        session.zone = zone;
+        session.invalidate_drop();
+        if session.source.tiled {
+            let next = session
+                .zone
+                .and_then(|zone| session.zone_intent(zone))
+                .map(|(intent, _)| intent);
+            session.target = next.map_or(TargetState::None, TargetState::Candidate);
+        }
     }
 
     pub fn replace_scene(&mut self, scene: DragScene) {
@@ -237,17 +320,21 @@ impl DragActor {
             && matches!(session.kind, DragKind::NativeMove | DragKind::ModifierMove)
             && session.source.origin_space == session.source.current_space
         {
-            let next = hit_test_available(
-                &session.scene,
-                session.pointer,
-                self.settings.drop_zone_fraction,
-                self.settings.drop_action,
-                previous,
-                &session.unavailable,
-                Some(session.source),
-                None,
-                session.split_held,
-            );
+            let next = if let Some(zone) = session.zone {
+                session.zone_intent(zone).map(|(intent, _)| intent)
+            } else {
+                hit_test_available(
+                    &session.scene,
+                    session.pointer,
+                    self.settings.drop_zone_fraction,
+                    self.settings.drop_action,
+                    previous,
+                    &session.unavailable,
+                    Some(session.source),
+                    None,
+                    session.split_held,
+                )
+            };
             session.target = next.map_or(TargetState::None, TargetState::Candidate);
         }
     }
@@ -264,7 +351,10 @@ impl DragActor {
             return false;
         }
         if intent.window == session.source.window
-            && !matches!(intent.action, WindowDropAction::Move(_))
+            && !matches!(
+                intent.action,
+                WindowDropAction::Move(_) | WindowDropAction::Zone(_)
+            )
         {
             return false;
         }
@@ -469,6 +559,8 @@ impl DragActor {
             || session.source.origin_space != session.source.current_space
         {
             None
+        } else if let Some(zone) = session.zone {
+            session.zone_intent(zone).map(|(intent, _)| intent)
         } else {
             hit_test_available(
                 &session.scene,
@@ -567,6 +659,134 @@ fn contains(rect: CGRect, point: CGPoint, margin: f64) -> bool {
         && point.x <= rect.origin.x + rect.size.width + margin
         && point.y >= rect.origin.y - margin
         && point.y <= rect.origin.y + rect.size.height + margin
+}
+
+/// Choose the screen-space column pattern for a target group count. Full-height
+/// candidates prefer more full-height columns; half-height candidates prefer the
+/// compact layout with fewer columns.
+fn zone_columns(target: usize, col: usize, kind: ZoneKind) -> Option<[Option<ZoneColumn>; 3]> {
+    if target == 2 {
+        return Some([Some(ZoneColumn::Full), Some(ZoneColumn::Full), None]);
+    }
+    if !(3..=6).contains(&target) {
+        return None;
+    }
+    let candidate = if kind == ZoneKind::Full {
+        ZoneColumn::Full
+    } else {
+        ZoneColumn::Split
+    };
+    let mut best = None;
+    let mut best_score = i32::MIN;
+    for mask in 0..27 {
+        let mut value = mask;
+        let mut columns = [None; 3];
+        for column in &mut columns {
+            *column = match value % 3 {
+                0 => None,
+                1 => Some(ZoneColumn::Full),
+                _ => Some(ZoneColumn::Split),
+            };
+            value /= 3;
+        }
+        if columns[col] != Some(candidate) {
+            continue;
+        }
+        let cells: usize = columns
+            .iter()
+            .map(|column| match column {
+                Some(ZoneColumn::Full) => 1,
+                Some(ZoneColumn::Split) => 2,
+                None => 0,
+            })
+            .sum();
+        if cells != target {
+            continue;
+        }
+        let active = columns.iter().filter(|column| column.is_some()).count() as i32;
+        let splits =
+            columns.iter().filter(|column| **column == Some(ZoneColumn::Split)).count() as i32;
+        let score = if kind == ZoneKind::Full {
+            active * 10 - splits
+        } else {
+            -active * 10 - splits
+        };
+        if score > best_score {
+            best_score = score;
+            best = Some(columns);
+        }
+    }
+    best
+}
+
+fn zone_cell_index(columns: &[Option<ZoneColumn>; 3], col: usize, kind: ZoneKind) -> Option<usize> {
+    let mut index = 0;
+    for (candidate, column) in columns.iter().enumerate() {
+        match column {
+            None => {}
+            Some(ZoneColumn::Full) => {
+                if candidate == col && kind == ZoneKind::Full {
+                    return Some(index);
+                }
+                index += 1;
+            }
+            Some(ZoneColumn::Split) => {
+                if candidate == col {
+                    match kind {
+                        ZoneKind::Top => return Some(index),
+                        ZoneKind::Bottom => return Some(index + 1),
+                        ZoneKind::Full => {}
+                    }
+                }
+                index += 2;
+            }
+        }
+    }
+    None
+}
+
+fn zone_cell_rect(
+    screen: CGRect,
+    columns: &[Option<ZoneColumn>; 3],
+    cell: usize,
+) -> Option<CGRect> {
+    let active: Vec<_> = columns.iter().filter_map(|column| *column).collect();
+    if active.is_empty() {
+        return None;
+    }
+    let width = screen.size.width / active.len() as f64;
+    let mut index = 0;
+    for (column_index, column) in active.iter().enumerate() {
+        let x = screen.origin.x + column_index as f64 * width;
+        match column {
+            ZoneColumn::Full => {
+                if index == cell {
+                    return Some(CGRect::new(
+                        CGPoint::new(x, screen.origin.y),
+                        CGSize::new(width, screen.size.height),
+                    ));
+                }
+                index += 1;
+            }
+            ZoneColumn::Split => {
+                let half = screen.size.height / 2.0;
+                if index == cell {
+                    return Some(CGRect::new(
+                        CGPoint::new(x, screen.origin.y),
+                        CGSize::new(width, half),
+                    ));
+                }
+                if index + 1 == cell {
+                    return Some(CGRect::new(
+                        CGPoint::new(x, screen.origin.y + half),
+                        CGSize::new(width, half),
+                    ));
+                }
+                index += 2;
+            }
+        }
+    }
+    None
 }
 
 pub fn classify_zone(frame: CGRect, point: CGPoint, fraction: f64) -> Option<DropZone> {
@@ -1190,6 +1410,92 @@ mod tests {
         motion(&mut actor, 100.0, 50.0);
         assert!(actor.intent().is_none());
         assert!(actor.finish(MouseButton::Left).unwrap().target.is_none());
+    }
+
+    #[test]
+    fn zone_context_targets_screen_cells_not_windows() {
+        let screen = frame(0.0, 0.0, 900.0, 600.0);
+        let source = source(true);
+        let mut actor = DragActor::new(DragDropSettings::default());
+        actor.begin_modifier(
+            source,
+            point(10.0, 10.0),
+            MouseAction::Move,
+            DragScene::default(),
+        );
+        actor.set_zone_context(Some(ZoneContext {
+            screen,
+            groups: 2,
+            source_has_others: true,
+            space: space(),
+        }));
+
+        assert!(motion_split(&mut actor, 450.0, 300.0, false));
+        let intent = actor.intent().unwrap();
+        let WindowDropAction::Zone(drop) = intent.action else {
+            panic!("expected a zone drop");
+        };
+        assert_eq!(drop.columns, [
+            Some(ZoneColumn::Full),
+            Some(ZoneColumn::Full),
+            Some(ZoneColumn::Full)
+        ]);
+        assert_eq!(drop.cell, 1);
+        assert_eq!(intent.frame.origin.x, 300.0);
+        assert_eq!(intent.frame.size.width, 300.0);
+        assert_eq!(intent.frame.size.height, 600.0);
+
+        assert!(motion_split(&mut actor, 750.0, 50.0, false));
+        let intent = actor.intent().unwrap();
+        let WindowDropAction::Zone(drop) = intent.action else {
+            panic!("expected a zone drop");
+        };
+        assert_eq!(drop.cell, 1);
+        assert_eq!(intent.frame.origin.x, 450.0);
+        assert_eq!(intent.frame.size.width, 450.0);
+        assert_eq!(intent.frame.size.height, 300.0);
+        actor.set_preview(intent, Some(intent.frame));
+        assert_eq!(
+            actor.finish(MouseButton::Left).unwrap().target.unwrap().intent.action,
+            WindowDropAction::Zone(drop)
+        );
+    }
+
+    #[test]
+    fn zone_grid_uses_two_columns_for_two_groups() {
+        let columns = zone_columns(2, 1, ZoneKind::Full).unwrap();
+        assert_eq!(columns, [Some(ZoneColumn::Full), Some(ZoneColumn::Full), None]);
+        let cell = zone_cell_index(&columns, 1, ZoneKind::Full).unwrap();
+        let rect = zone_cell_rect(frame(0.0, 0.0, 1000.0, 500.0), &columns, cell).unwrap();
+        assert_eq!(rect.origin.x, 500.0);
+        assert_eq!(rect.size.width, 500.0);
+        assert_eq!(rect.size.height, 500.0);
+    }
+
+    #[test]
+    fn zone_grid_middle_band_is_full_height() {
+        let columns = zone_columns(3, 1, ZoneKind::Full).unwrap();
+        assert_eq!(columns, [
+            Some(ZoneColumn::Full),
+            Some(ZoneColumn::Full),
+            Some(ZoneColumn::Full)
+        ]);
+        let cell = zone_cell_index(&columns, 1, ZoneKind::Full).unwrap();
+        let rect = zone_cell_rect(frame(0.0, 0.0, 900.0, 600.0), &columns, cell).unwrap();
+        assert_eq!(rect.origin.x, 300.0);
+        assert_eq!(rect.size.width, 300.0);
+        assert_eq!(rect.size.height, 600.0);
+    }
+
+    #[test]
+    fn zone_grid_half_band_collapses_empty_columns() {
+        let columns = zone_columns(3, 2, ZoneKind::Top).unwrap();
+        assert_eq!(columns.iter().filter(|column| column.is_some()).count(), 2);
+        let cell = zone_cell_index(&columns, 2, ZoneKind::Top).unwrap();
+        let rect = zone_cell_rect(frame(0.0, 0.0, 1000.0, 500.0), &columns, cell).unwrap();
+        assert_eq!(rect.size.width, 500.0);
+        assert_eq!(rect.size.height, 250.0);
+        assert_eq!(rect.origin.y, 0.0);
     }
 
     #[test]
