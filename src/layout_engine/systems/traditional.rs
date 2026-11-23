@@ -463,7 +463,10 @@ impl TraditionalLayoutSystem {
             child.detach(&mut self.tree).remove();
         }
         self.set_layout(root, LayoutKind::Horizontal);
-        self.tree.data.layout.info[root].total = 0.0;
+        let root_info = &mut self.tree.data.layout.info[root];
+        root_info.total = 0.0;
+        root_info.is_fullscreen = false;
+        root_info.is_fullscreen_within_gaps = false;
 
         let mut cell = 0;
         for column in drop.columns {
