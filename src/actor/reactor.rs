@@ -4076,7 +4076,7 @@ impl Reactor {
         if self.refreshes_blocked() {
             return outcome;
         }
-        if self.layout_manager.layout_engine.workspaces().settings.mode
+        if self.layout_manager.layout_engine.workspaces().configured_mode()
             != crate::common::config::WorkspaceMode::Global
         {
             return outcome;
@@ -6556,7 +6556,7 @@ impl Reactor {
     /// names its workspace: launchers can activate an app on another display.
     fn place_new_window_on_pointer_display(&mut self, window: WindowId, space: SpaceId) {
         let engine = &self.layout_manager.layout_engine;
-        if engine.workspaces().settings.mode != crate::common::config::WorkspaceMode::Global {
+        if engine.workspaces().configured_mode() != crate::common::config::WorkspaceMode::Global {
             return;
         }
         let Some(target_screen) = window_server::current_cursor_location()

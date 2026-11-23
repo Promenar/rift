@@ -1130,3 +1130,31 @@ fn global_single_display_restore_stays_in_the_windows_native_space() {
         assert_eq!(store.workspace_for_window(window), Some(target));
     }
 }
+
+#[test]
+fn simple_mode_disconnected_display_does_not_transfer_workspaces_onto_a_live_one() {
+    let settings = VirtualWorkspaceSettings {
+        mode: WorkspaceMode::Global,
+        default_workspace_count: 1,
+        workspace_names: vec!["Only".into()],
+        ..Default::default()
+    };
+    let (a, b) = (SpaceId::new(811), SpaceId::new(812));
+    let file = session(&settings, &[(a, "builtin", &[]), (b, "external", &[])]);
+    let (mut engine, mut store) = boot(&settings, &file);
+    engine.set_simple_mode(true);
+    let detached = ws(&engine, b, 0);
+
+    resolve(&mut engine, &mut store, &[(a, "builtin")], &[("builtin", &[a])]);
+
+    assert_eq!(
+        engine.workspaces[detached].space, b,
+        "a detached display keeps its workspace"
+    );
+    assert!(engine.saved_space_is_unresolved(Some(b)));
+    assert_eq!(
+        engine.workspaces.workspace_ids(a).len(),
+        1,
+        "simple mode never accumulates a second workspace on a live display"
+    );
+}

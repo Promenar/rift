@@ -429,6 +429,18 @@ impl WorkspaceStore {
         }
     }
 
+    /// Workspace policy that ignores the temporary single-display adaptation.
+    /// Topology decisions (space remaps, saved-space resolution and display
+    /// departure) must still follow global mode on one connected display;
+    /// `namespace` applies the single-display isolation separately.
+    pub(crate) fn configured_mode(&self) -> WorkspaceMode {
+        if self.simple_mode {
+            WorkspaceMode::PerDisplay
+        } else {
+            self.settings.mode
+        }
+    }
+
     fn namespace(&self, mode: WorkspaceMode, space: SpaceId) -> Option<SpaceId> {
         (mode != WorkspaceMode::Global || self.single_display).then_some(space)
     }
@@ -467,11 +479,12 @@ impl WorkspaceStore {
     }
 
     fn scope_ids(&self, space: SpaceId) -> impl Iterator<Item = VirtualWorkspaceId> + '_ {
-        let namespace = self.namespace(self.settings.mode, space);
+        let mode = self.configured_mode();
+        let namespace = self.namespace(mode, space);
         self.order
             .iter()
             .copied()
-            .filter(move |id| self.namespace(self.settings.mode, self[*id].space) == namespace)
+            .filter(move |id| self.namespace(mode, self[*id].space) == namespace)
     }
 
     fn eligible(&self, context: WorkspaceContext<'_>, id: VirtualWorkspaceId) -> bool {
@@ -1119,7 +1132,7 @@ impl WorkspaceStore {
             return Vec::new();
         }
 
-        let deleted_target_workspace_ids = if self.settings.mode == WorkspaceMode::PerDisplay {
+        let deleted_target_workspace_ids = if self.configured_mode() == WorkspaceMode::PerDisplay {
             self.workspace_ids(new_space)
         } else {
             Vec::new()
@@ -2381,6 +2394,39 @@ mod tests {
             Some(migrated[1]),
             Some(*migrated.last().unwrap())
         ]);
+    }
+
+    #[test]
+    fn simple_mode_remap_does_not_accumulate_workspaces_on_one_space() {
+        let mut window_store = WindowStore::default();
+        // The field default is global mode, which simple mode must override.
+        let settings = VirtualWorkspaceSettings {
+            mode: WorkspaceMode::Global,
+            default_workspace_count: 1,
+            ..Default::default()
+        };
+        let mut manager = WorkspaceStore::new_with_config(&settings, &LayoutSettings::default());
+        manager.set_simple_mode(true);
+        let old_space = SpaceId::new(1);
+        let new_space = SpaceId::new(2);
+        manager.ensure_space_initialized(old_space);
+        manager.ensure_space_initialized(new_space);
+        let extra = manager.insert_workspace(new_space, "Stale".into(), LayoutMode::Traditional);
+        let stale_window = WindowId::new(30, 1);
+        assert!(manager.assign_window_to_workspace(
+            &mut window_store,
+            new_space,
+            stale_window,
+            extra
+        ));
+
+        let deleted = manager.remap_space(&mut window_store, old_space, new_space);
+
+        assert!(deleted.contains(&extra));
+        assert_eq!(manager.workspace_ids(new_space).len(), 1);
+        assert!(manager.workspace_ids(old_space).is_empty());
+        let survivor = manager.workspace_ids(new_space)[0];
+        assert_eq!(window_store.workspace_for_window(stale_window), Some(survivor));
     }
 
     #[test]

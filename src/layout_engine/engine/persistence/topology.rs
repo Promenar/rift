@@ -62,7 +62,7 @@ impl LayoutEngine {
             self.remap_space(window_store, old, new);
         }
 
-        let shared = self.workspaces.settings.mode == WorkspaceMode::Global;
+        let shared = self.workspaces.configured_mode() == WorkspaceMode::Global;
         for space in saved {
             if remaps.iter().any(|(old, _)| *old == space) || exists(&space) {
                 continue;
