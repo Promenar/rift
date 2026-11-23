@@ -20,7 +20,8 @@ animation_fps = 100.0
 
 # Simple mode
 # - Keeps traditional tiling and one workspace per display.
-# - Drag edges always split; the split modifier is ignored.
+# - Drag drops always use the centre action (stack); edges never split, the
+#   split modifier is ignored, and dragging cannot change group proportions.
 # - Workspace switching, creating and layout-mode commands are disabled.
 # - Takes effect on startup; a layout snapshot with multiple workspaces is ignored.
 #simple_mode = false

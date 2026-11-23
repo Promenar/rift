@@ -1522,8 +1522,10 @@ fn mouse_modifier_held(modifier: MouseModifier, flags: CGEventFlags) -> bool {
     }
 }
 
-/// Simple mode treats every drag as if the split modifier were held.
-fn drag_split(simple_mode: bool, modifier_held: bool) -> bool { simple_mode || modifier_held }
+/// Simple mode never splits on a drag: every drop uses the configured centre
+/// action (stack by default), so dragging a window onto another group cannot
+/// change the groups' proportions. Full mode keeps the split modifier.
+fn drag_split(simple_mode: bool, modifier_held: bool) -> bool { !simple_mode && modifier_held }
 
 #[inline]
 fn mouse_move_sampling_profile(low_power_mode: bool) -> u64 {
@@ -2699,9 +2701,9 @@ mod tests {
     }
 
     #[test]
-    fn simple_mode_always_enables_drag_splitting() {
-        assert!(drag_split(true, false));
-        assert!(drag_split(true, true));
+    fn simple_mode_never_splits_on_drag() {
+        assert!(!drag_split(true, false));
+        assert!(!drag_split(true, true));
         assert!(!drag_split(false, false));
         assert!(drag_split(false, true));
     }
