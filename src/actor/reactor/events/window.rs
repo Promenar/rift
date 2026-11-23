@@ -345,7 +345,7 @@ pub fn handle_window_frame_changed(
             // The start of a user drag is intent, even when no workspace changes.
             layout.layout_engine.forget_native_layout_for_window(&state.windows, wid);
             let session_id = drag.actor.await_native(wid);
-            let scene = if tiled && !native_resize {
+            let scene = if tiled && !native_resize && !simple_mode {
                 new_space.map_or_else(crate::actor::drag::DragScene::default, |space| {
                     crate::actor::reactor::events::drag::build_drag_scene(state, layout, wid, space)
                 })

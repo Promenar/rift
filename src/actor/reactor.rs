@@ -535,7 +535,8 @@ impl Reactor {
             overview_focus: None,
             mouse_inventory_hit: None,
             drag_manager: managers::DragManager {
-                actor: crate::actor::drag::DragActor::new(config.settings.drag_drop),
+                actor: crate::actor::drag::DragActor::new(config.settings.drag_drop)
+                    .with_simple_mode(config.settings.simple_mode),
                 native_motion_active: std::sync::Arc::default(),
                 externally_controlled_window: None,
                 preview: None,

@@ -96,6 +96,8 @@ pub struct Session {
     /// Simple-mode screen-space drop context; when set, window targets are
     /// ignored entirely.
     zone: Option<ZoneContext>,
+    /// Simple mode never falls back to window-target candidates.
+    simple_mode: bool,
     pub kind: DragKind,
 }
 
@@ -131,6 +133,7 @@ impl Session {
         pointer: CGPoint,
         scene: DragScene,
         kind: DragKind,
+        simple_mode: bool,
     ) -> Self {
         Self {
             source,
@@ -142,6 +145,7 @@ impl Session {
             unavailable: Vec::new(),
             split_held: false,
             zone: None,
+            simple_mode,
             kind,
         }
     }
@@ -222,6 +226,7 @@ pub struct DragActor {
     state: State,
     next_session_id: u64,
     settings: DragDropSettings,
+    simple_mode: bool,
 }
 
 impl DragActor {
@@ -230,8 +235,16 @@ impl DragActor {
             state: State::Idle,
             next_session_id: 1,
             settings,
+            simple_mode: false,
         }
     }
+
+    pub fn with_simple_mode(mut self, enabled: bool) -> Self {
+        self.simple_mode = enabled;
+        self
+    }
+
+    pub fn set_simple_mode(&mut self, enabled: bool) { self.simple_mode = enabled; }
 
     pub fn is_active(&self) -> bool { !matches!(self.state, State::Idle) }
 
@@ -254,7 +267,8 @@ impl DragActor {
                 || matches!(target.intent.action, WindowDropAction::Zone(_)))
             .then_some(target);
         }
-        if !session.source.tiled
+        if session.simple_mode
+            || !session.source.tiled
             || !matches!(session.target, TargetState::None)
             || !contains(session.source.origin_frame, session.pointer, 0.0)
         {
@@ -322,6 +336,8 @@ impl DragActor {
         {
             let next = if let Some(zone) = session.zone {
                 session.zone_intent(zone).map(|(intent, _)| intent)
+            } else if session.simple_mode {
+                None
             } else {
                 hit_test_available(
                     &session.scene,
@@ -461,7 +477,14 @@ impl DragActor {
             source.last_frame.origin.x + source.last_frame.size.width / 2.0,
             source.last_frame.origin.y + source.last_frame.size.height / 2.0,
         );
-        self.state = State::Dragging(Session::new(source, MouseButton::Left, pointer, scene, kind));
+        self.state = State::Dragging(Session::new(
+            source,
+            MouseButton::Left,
+            pointer,
+            scene,
+            kind,
+            self.simple_mode,
+        ));
     }
 
     /// Updates an existing native drag without rebuilding its immutable scene.
@@ -529,7 +552,14 @@ impl DragActor {
             MouseAction::Move => DragKind::ModifierMove,
             MouseAction::None => return,
         };
-        self.state = State::Dragging(Session::new(source, button, point, scene, kind));
+        self.state = State::Dragging(Session::new(
+            source,
+            button,
+            point,
+            scene,
+            kind,
+            self.simple_mode,
+        ));
     }
 
     pub fn motion(&mut self, motion: DragMotion) -> bool {
@@ -561,6 +591,8 @@ impl DragActor {
             None
         } else if let Some(zone) = session.zone {
             session.zone_intent(zone).map(|(intent, _)| intent)
+        } else if session.simple_mode {
+            None
         } else {
             hit_test_available(
                 &session.scene,

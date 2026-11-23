@@ -309,6 +309,7 @@ pub fn handle_config_updated(
     layout.layout_engine.enforce_traditional_layouts(&state.windows);
 
     drag.update_config(config.settings.drag_drop);
+    drag.actor.set_simple_mode(config.settings.simple_mode);
 
     outcome.absorb(EventOutcome {
         service_config_update: Some(config.clone()),
