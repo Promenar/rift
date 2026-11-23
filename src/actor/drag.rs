@@ -404,6 +404,17 @@ impl DragActor {
         true
     }
 
+    /// Simple mode treats a tiled window's native resize as a move so it can be
+    /// dropped onto a group instead of changing the layout weights.
+    pub fn keep_native_move_kind(&mut self) {
+        if let State::Dragging(session) = &mut self.state
+            && session.source.tiled
+            && matches!(session.kind, DragKind::NativeMove | DragKind::NativeResize)
+        {
+            session.kind = DragKind::NativeMove;
+        }
+    }
+
     #[cfg(test)]
     pub fn begin_modifier(
         &mut self,

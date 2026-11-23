@@ -2005,6 +2005,39 @@ fn native_frame_changes_only_resize_layout_during_user_drag() {
 }
 
 #[test]
+fn simple_mode_treats_tiled_resize_drag_as_a_move() {
+    let (mut reactor, wid, _wsid, _space1, _space2, frame) = reactor_with_window_on_space1();
+    reactor.layout_manager.layout_engine.set_simple_mode(true);
+    let resized = CGRect::new(
+        frame.origin,
+        CGSize::new(frame.size.width + 80.0, frame.size.height + 40.0),
+    );
+
+    let outcome = reactor
+        .dispatch_workflow(Event::WindowFrameChanged(
+            wid,
+            resized,
+            None,
+            Requested(false),
+            Some(MouseState::Down),
+        ))
+        .unwrap();
+
+    assert!(
+        !outcome
+            .layout_events
+            .iter()
+            .any(|event| matches!(event, LayoutEvent::WindowResized { .. })),
+        "simple mode must not update layout weights from a window resize"
+    );
+    assert_eq!(
+        reactor.drag_manager.actor.kind(),
+        Some(crate::actor::drag::DragKind::NativeMove),
+        "the resize is handled as a move so it can be dropped into a group"
+    );
+}
+
+#[test]
 fn crossing_native_spaces_reconciles_membership_with_one_arrange_pass() {
     let (mut reactor, wid, wsid, _space1, space2, frame, screen2) =
         reactor_with_window_on_space1_two_displays();
