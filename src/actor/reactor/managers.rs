@@ -45,6 +45,7 @@ pub struct DragManager {
     pub native_motion_active: Arc<AtomicBool>,
     pub externally_controlled_window: Option<WindowId>,
     pub(super) preview: Option<crate::ui::drag_preview::DragPreview>,
+    pub(super) zone_preview: Option<crate::ui::drag_preview::ZonePreview>,
     pub(super) preview_enabled: bool,
     pub(super) preview_suppressed: bool,
     pub(super) haptics_enabled: bool,
@@ -104,6 +105,31 @@ impl DragManager {
             self.hide_preview();
             return;
         };
+        if matches!(
+            target.intent.action,
+            crate::layout_engine::WindowDropAction::Zone(_)
+        ) {
+            self.hide_preview();
+            let result = if let Some(preview) = &mut self.zone_preview {
+                preview.show(target).map(|_| ())
+            } else {
+                match crate::ui::drag_preview::ZonePreview::new(target) {
+                    Ok(Some(mut preview)) => {
+                        let result = preview.show(target).map(|_| ());
+                        self.zone_preview = Some(preview);
+                        result
+                    }
+                    Ok(None) => Ok(()),
+                    Err(error) => Err(error),
+                }
+            };
+            if let Err(error) = result {
+                tracing::warn!(?error, "failed to update zone preview");
+                self.release_zone_preview();
+            }
+            return;
+        }
+        self.hide_zone_preview();
         let result = if let Some(preview) = &mut self.preview {
             preview.show(target)
         } else {
@@ -123,9 +149,25 @@ impl DragManager {
         if let Some(preview) = &mut self.preview {
             preview.hide();
         }
+        self.hide_zone_preview();
     }
 
-    pub fn release_preview(&mut self) { drop(self.preview.take()); }
+    pub fn release_preview(&mut self) {
+        drop(self.preview.take());
+        self.release_zone_preview();
+    }
+
+    fn hide_zone_preview(&mut self) {
+        if let Some(preview) = &mut self.zone_preview {
+            preview.hide();
+        }
+    }
+
+    fn release_zone_preview(&mut self) {
+        if let Some(mut preview) = self.zone_preview.take() {
+            preview.hide();
+        }
+    }
 
     pub fn suppress_preview(&mut self, suppressed: bool) {
         self.preview_suppressed = suppressed;

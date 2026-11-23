@@ -367,21 +367,30 @@ pub fn handle_window_frame_changed(
         }
         if simple_mode && tiled {
             drag.actor.keep_native_move_kind();
-            if let Some(space) = new_space
-                && let Some((groups, source_has_others)) =
-                    layout.layout_engine.zone_group_info(space, wid)
-                && let Some(screen) = screens
+            let zone = new_space.and_then(|space| {
+                let (groups, source_has_others) =
+                    layout.layout_engine.zone_group_info(space, wid)?;
+                let screen = screens
                     .iter()
                     .find(|(candidate, ..)| *candidate == space)
-                    .map(|(_, frame, _)| *frame)
-            {
-                drag.actor.set_zone_context(Some(crate::actor::drag::ZoneContext {
+                    .map(|(_, frame, _)| *frame)?;
+                Some(crate::actor::drag::ZoneContext {
                     screen,
                     groups,
                     source_has_others,
                     space,
-                }));
-            }
+                })
+            });
+            drag.actor
+                .set_zone_context(Some(zone.unwrap_or(crate::actor::drag::ZoneContext {
+                    screen: CGRect::new(
+                        objc2_core_foundation::CGPoint::new(0.0, 0.0),
+                        objc2_core_foundation::CGSize::new(0.0, 0.0),
+                    ),
+                    groups: 0,
+                    source_has_others: false,
+                    space: new_space.unwrap_or(crate::sys::screen::SpaceId::new(0)),
+                })));
         }
         drag.sync_preview();
         if tiled {

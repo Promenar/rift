@@ -539,6 +539,7 @@ impl Reactor {
                 native_motion_active: std::sync::Arc::default(),
                 externally_controlled_window: None,
                 preview: None,
+                zone_preview: None,
                 preview_enabled: config.settings.drag_drop.enabled
                     && config.settings.drag_drop.preview,
                 preview_suppressed: false,
