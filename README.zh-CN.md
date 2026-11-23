@@ -71,8 +71,8 @@
 2026-11-18 首次安装 v0.8.3 中文版，2026-11-19 与 2026-11-23 原位更新：
 
 - 版本目录：`~/Library/Application Support/Rift/Versions/0.8.3-zh-cn-20261118-022151`
-- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+55ba382e2c3e`
-- 二进制 SHA-256：`9dbe561d0aec9b691098130ef44976a631006e54616689bd87cfd14889690e38`
+- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+a1ece3df89ea`
+- 二进制 SHA-256：`ef67023cbec44d2c779e854a19bc3d75703acf9c1220ff695e44d2628a0c8eb3`
 - 二进制已用本机 `Apple Development` 证书签名，designated requirement 为「标识符 + 证书」，不再绑定 cdhash；用同一身份重新签名并替换后，辅助功能授权可继续沿用（2026-11-18 已实测：重建后 cdhash 变化，窗口接管无需重新授权）
 - 服务用 `rift service restart` 管理；`rift-cli service` 已提示迁到 `rift`
 - 用户配置、快捷键、应用规则与 LaunchAgent 未改；持久化布局快照在升级前备份
@@ -155,7 +155,7 @@ cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli 
 | arm64 release 构建 | `rift` 与 `rift-cli` 生成成功 |
 | 安装运行（2026-11-20） | `rift --version` 为 `0.8.3+b60ab40c8849`；简单模式下列表只有 1 个工作区、布局为 traditional；设置侧栏隐藏“工作区”，布局页只显示“传统平铺”，鼠标页不再显示“切分修饰键”；实测按住 Fn 从页签组拖出窗口到另一窗口边缘，无需 Shift 即拆成独立新组（该边缘拆分行为已于 2026-11-23 取消）；页签组缩放后隐藏成员会重试 frame；辅助功能授权保留 |
 | 拓扑回归（2026-11-23） | `cargo nextest run --locked -E 'not binary(settings_native)'` 928 项通过；新增简单模式 remap 与断连显示器拓扑回归测试；重启后两块显示器各只有 1 个工作区（space 4 五窗口、space 345 一窗口），`0.8.3+9e8fa2092158` 安装后辅助功能授权保留 |
-| 屏幕分区拖拽（2026-11-24） | `cargo nextest run --locked -E 'not binary(settings_native)'` 935 项通过；新增传统布局 zone 重建、屏幕格命中与拖拽会话测试；安装 `0.8.3+55ba382e2c3e`，现场拖拽待用户验证 |
+| 屏幕分区拖拽（2026-11-24） | `cargo nextest run --locked -E 'not binary(settings_native)'` 935 项通过；新增传统布局 zone 重建、屏幕格命中与拖拽会话测试；安装 `0.8.3+a1ece3df89ea`，现场拖拽待用户验证 |
 | 拖拽行为（2026-11-23） | 简单模式取消拖拽边缘拆分：目标窗口任意位置都按 `drop_action`（stack）处理，拖入页签组即成为页签；平铺窗口的边框缩放按移动处理，不更新布局权重，窗口组比例不再变化；`simple_mode_never_splits_on_drag`、`simple_mode_treats_tiled_resize_drag_as_a_move` 与既有边缘动作测试覆盖。合成鼠标事件未能触发 Rift 拖拽会话，现场预览待用户实拖确认 |
 
 已知问题：`settings_native --ignored --verify` 在 `search replaces the sidebar` 断言失败，**纯上游 v0.8.3 在同一台机器上同样失败**，与本仓库汉化无关；该断言依赖搜索态下侧栏视图被替换的时序。快捷键与关于页另有独立入口，已单独通过。
