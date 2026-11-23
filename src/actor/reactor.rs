@@ -2001,7 +2001,10 @@ impl Reactor {
                             .workspace_for_window(&self.state.windows, space, wid)
                             .is_some()
                 });
-                let screens = if resized {
+                let screens = if resized
+                    || (self.config.settings.simple_mode
+                        && effective_mouse_state == Some(MouseState::Down))
+                {
                     self.space_state
                         .screens
                         .iter()
@@ -2157,22 +2160,44 @@ impl Reactor {
                     }),
                     scene,
                 );
-                if tiled
-                    && action == crate::common::config::MouseAction::Move
-                    && self.layout_manager.layout_engine.workspaces().simple_mode()
-                    && let Some(space) = space
-                    && let Some((groups, source_has_others)) =
-                        self.layout_manager.layout_engine.zone_group_info(space, window)
-                    && let Some(screen) =
-                        self.space_state.screen_by_space(space).map(|screen| screen.frame)
-                {
-                    self.drag_manager.actor.set_zone_context(Some(
-                        crate::actor::drag::ZoneContext {
+                let simple_mode = self.drag_manager.actor.simple_mode();
+                if tiled && action == crate::common::config::MouseAction::Move && simple_mode {
+                    let zone = space.and_then(|space| {
+                        let (members, source_has_others) =
+                            self.layout_manager.layout_engine.zone_group_info(space, window)?;
+                        let screen = self.space_state.screen_by_space(space)?.frame;
+                        let mut groups = [None; 6];
+                        for (index, (member, is_source_group)) in
+                            members.into_iter().take(6).enumerate()
+                        {
+                            let frame = self.state.windows.window(member)?.frame_monotonic;
+                            groups[index] = Some(crate::actor::drag::ZoneGroupScreen {
+                                member,
+                                frame,
+                                is_source_group,
+                            });
+                        }
+                        Some(crate::actor::drag::ZoneContext {
                             screen,
                             groups,
                             source_has_others,
                             space,
-                        },
+                        })
+                    });
+                    self.drag_manager.actor.set_zone_context(Some(
+                        zone.unwrap_or(crate::actor::drag::ZoneContext {
+                            screen: CGRect::new(
+                                CGPoint::new(0.0, 0.0),
+                                objc2_core_foundation::CGSize::new(0.0, 0.0),
+                            ),
+                            groups: [None; 6],
+                            source_has_others: false,
+                            space: space.unwrap_or(
+                                self.space_state
+                                    .command_space
+                                    .unwrap_or(crate::sys::screen::SpaceId::new(0)),
+                            ),
+                        }),
                     ));
                 }
                 self.drag_manager.sync_preview();

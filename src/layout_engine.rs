@@ -39,6 +39,8 @@ pub enum ZoneColumn {
 pub struct ZoneDrop {
     pub columns: [Option<ZoneColumn>; 3],
     pub cell: usize,
+    /// Merge the source into this group instead of creating a new group.
+    pub merge_target: Option<crate::actor::app::WindowId>,
 }
 
 impl From<crate::common::config::MouseDropAction> for WindowDropAction {

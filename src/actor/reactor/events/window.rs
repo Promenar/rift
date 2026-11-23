@@ -1,5 +1,5 @@
 use objc2_core_foundation::CGRect;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::actor::app::WindowId;
 use crate::actor::reactor::events::EventOutcome;
@@ -327,21 +327,14 @@ pub fn handle_window_frame_changed(
         && (mouse_state == Some(MouseState::Down) || drag.actor.is_active());
     if dragging {
         let tiled = !layout.layout_engine.is_window_floating(wid);
-        let simple_mode = layout.layout_engine.workspaces().simple_mode();
+        let simple_mode = drag.actor.simple_mode();
         let size_changed = !old_frame.size.same_as(new_frame.size);
         // Simple mode has no native weight-resize gesture: a tiled window's size
         // change during a drag is treated as a move so it can be dropped into a
         // group without changing any group's proportions.
         let native_resize = size_changed && !(simple_mode && tiled);
-        if !drag.actor.update_native(wid, new_frame, new_space) {
-            if simple_mode && tiled && size_changed {
-                info!(
-                    ?wid,
-                    ?old_frame,
-                    ?new_frame,
-                    "simple mode treats a tiled resize drag as a move"
-                );
-            }
+        let started = !drag.actor.update_native(wid, new_frame, new_space);
+        if started {
             // The start of a user drag is intent, even when no workspace changes.
             layout.layout_engine.forget_native_layout_for_window(&state.windows, wid);
             let session_id = drag.actor.await_native(wid);
@@ -367,30 +360,44 @@ pub fn handle_window_frame_changed(
         }
         if simple_mode && tiled {
             drag.actor.keep_native_move_kind();
-            let zone = new_space.and_then(|space| {
-                let (groups, source_has_others) =
-                    layout.layout_engine.zone_group_info(space, wid)?;
-                let screen = screens
-                    .iter()
-                    .find(|(candidate, ..)| *candidate == space)
-                    .map(|(_, frame, _)| *frame)?;
-                Some(crate::actor::drag::ZoneContext {
-                    screen,
-                    groups,
-                    source_has_others,
-                    space,
-                })
-            });
-            drag.actor
-                .set_zone_context(Some(zone.unwrap_or(crate::actor::drag::ZoneContext {
-                    screen: CGRect::new(
-                        objc2_core_foundation::CGPoint::new(0.0, 0.0),
-                        objc2_core_foundation::CGSize::new(0.0, 0.0),
-                    ),
-                    groups: 0,
-                    source_has_others: false,
-                    space: new_space.unwrap_or(crate::sys::screen::SpaceId::new(0)),
-                })));
+            if started {
+                let zone = new_space.and_then(|space| {
+                    let (members, source_has_others) =
+                        layout.layout_engine.zone_group_info(space, wid)?;
+                    let screen = screens
+                        .iter()
+                        .find(|(candidate, ..)| *candidate == space)
+                        .map(|(_, frame, _)| *frame)?;
+                    let mut groups = [None; 6];
+                    for (index, (member, is_source_group)) in
+                        members.into_iter().take(6).enumerate()
+                    {
+                        let frame = state.windows.window(member)?.frame_monotonic;
+                        groups[index] = Some(crate::actor::drag::ZoneGroupScreen {
+                            member,
+                            frame,
+                            is_source_group,
+                        });
+                    }
+                    Some(crate::actor::drag::ZoneContext {
+                        screen,
+                        groups,
+                        source_has_others,
+                        space,
+                    })
+                });
+                drag.actor.set_zone_context(Some(zone.unwrap_or(
+                    crate::actor::drag::ZoneContext {
+                        screen: CGRect::new(
+                            objc2_core_foundation::CGPoint::new(0.0, 0.0),
+                            objc2_core_foundation::CGSize::new(0.0, 0.0),
+                        ),
+                        groups: [None; 6],
+                        source_has_others: false,
+                        space: new_space.unwrap_or(crate::sys::screen::SpaceId::new(0)),
+                    },
+                )));
+            }
         }
         drag.sync_preview();
         if tiled {

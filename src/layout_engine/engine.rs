@@ -276,13 +276,14 @@ impl LayoutEngine {
         system.apply_window_drop(layout, request.source, request.target, request.action)
     }
 
-    /// Top-level tab group count and whether `source` shares its group, used
-    /// by simple mode to size the screen-space drop grid.
+    /// One visible member per top-level group (with the source group flagged)
+    /// and whether `source` shares its group, used by simple mode to size the
+    /// screen-space drop grid and detect merges.
     pub(crate) fn zone_group_info(
         &self,
         space: SpaceId,
         source: WindowId,
-    ) -> Option<(usize, bool)> {
+    ) -> Option<(Vec<(WindowId, bool)>, bool)> {
         let (workspace, layout) = self.workspaces.active_layout_for_space(space)?;
         match &self.workspaces[workspace].layout_system {
             LayoutSystemKind::Traditional(system) => system.zone_context_for_window(layout, source),

@@ -6,9 +6,10 @@ use cgs::compositor::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_core_foundation::{CFString, CGPoint, CGRect, CGSize};
+use objc2_app_kit::NSFont;
+use objc2_core_foundation::{CFString, CFType, CGPoint, CGRect, CGSize};
 use objc2_core_graphics::CGColor;
-use objc2_quartz_core::{CALayer, CATextLayer, CATransaction, kCAAlignmentLeft};
+use objc2_quartz_core::{CALayer, CATextLayer, CATransaction, kCAAlignmentCenter};
 
 use crate::actor::drag::{DropTarget, preview_frame};
 use crate::layout_engine::{WindowDropAction, ZoneColumn};
@@ -21,9 +22,11 @@ static BORDER: LazyLock<Retained<CGColor>> =
 static STACK_FILL: LazyLock<Retained<CGColor>> =
     LazyLock::new(|| CGColor::new_generic_rgb(0.34, 0.64, 1.0, 0.16).into());
 static ZONE_CELL_BORDER: LazyLock<Retained<CGColor>> =
-    LazyLock::new(|| CGColor::new_generic_rgb(0.13, 0.62, 1.0, 0.32).into());
-static ZONE_LABEL_BG: LazyLock<Retained<CGColor>> =
-    LazyLock::new(|| CGColor::new_generic_rgb(0.04, 0.06, 0.09, 0.86).into());
+    LazyLock::new(|| CGColor::new_generic_rgb(0.20, 0.66, 1.0, 0.62).into());
+static ZONE_CELL_FILL: LazyLock<Retained<CGColor>> =
+    LazyLock::new(|| CGColor::new_generic_rgb(0.13, 0.62, 1.0, 0.07).into());
+static ZONE_SCRIM: LazyLock<Retained<CGColor>> =
+    LazyLock::new(|| CGColor::new_generic_rgb(0.0, 0.0, 0.0, 0.14).into());
 
 const PREVIEW_CORNER_RADIUS: f64 = 12.0;
 const PREVIEW_BLUR_RADIUS: f64 = 6.0;
@@ -361,12 +364,17 @@ impl ZonePreview {
             root.setMasksToBounds(false);
             root.setOpacity(0.0);
 
+            let scrim = CALayer::layer();
+            scrim.setFrame(bounds);
+            scrim.setBackgroundColor(Some(&ZONE_SCRIM));
+            root.addSublayer(&scrim);
+
             for _ in 0..6 {
                 let cell = CALayer::layer();
                 cell.setBorderColor(Some(&ZONE_CELL_BORDER));
-                cell.setBorderWidth(1.0);
+                cell.setBorderWidth(1.5);
                 cell.setCornerRadius(7.0);
-                cell.setBackgroundColor(None);
+                cell.setBackgroundColor(Some(&ZONE_CELL_FILL));
                 cell.setOpacity(0.0);
                 root.addSublayer(&cell);
                 cells.push(cell);
@@ -374,16 +382,25 @@ impl ZonePreview {
 
             highlight.setBackgroundColor(Some(&FILL));
             highlight.setBorderColor(Some(&BORDER));
-            highlight.setBorderWidth(2.0);
+            highlight.setBorderWidth(3.0);
             highlight.setCornerRadius(8.0);
             root.addSublayer(&highlight);
 
-            label.setFontSize(13.0);
-            label.setForegroundColor(Some(&CGColor::new_generic_rgb(0.9, 0.95, 1.0, 1.0)));
-            label.setBackgroundColor(Some(&ZONE_LABEL_BG));
-            label.setCornerRadius(6.0);
-            label.setMasksToBounds(true);
-            unsafe { label.setAlignmentMode(kCAAlignmentLeft) };
+            label.setContentsScale(2.0);
+            let font = NSFont::boldSystemFontOfSize(24.0);
+            unsafe {
+                label.setFont(Some(&*(Retained::as_ptr(&font) as *const CFType)));
+            }
+            label.setFontSize(24.0);
+            label.setForegroundColor(Some(&CGColor::new_generic_rgb(0.72, 0.88, 1.0, 1.0)));
+            label.setBackgroundColor(None);
+            label.setMasksToBounds(false);
+            label.setWrapped(true);
+            label.setShadowColor(Some(&CGColor::new_generic_rgb(0.0, 0.0, 0.0, 0.7)));
+            label.setShadowOpacity(0.9);
+            label.setShadowRadius(5.0);
+            label.setShadowOffset(CGSize::new(0.0, -1.0));
+            unsafe { label.setAlignmentMode(kCAAlignmentCenter) };
             root.addSublayer(&label);
         });
         let surface = WindowSurface::new(window.id(), bounds, &root)?;
@@ -443,10 +460,14 @@ impl ZonePreview {
                 geometry.candidate.size,
             );
             self.highlight.setFrame(candidate);
-            let label_width = 150.0_f64.min(candidate.size.width - 16.0).max(80.0);
+            let label_height = 42.0;
+            let label_width = (candidate.size.width - 24.0).max(96.0);
             self.label.setFrame(CGRect::new(
-                CGPoint::new(candidate.origin.x + 8.0, candidate.origin.y + 8.0),
-                CGSize::new(label_width, 26.0),
+                CGPoint::new(
+                    candidate.origin.x + (candidate.size.width - label_width) / 2.0,
+                    candidate.origin.y + (candidate.size.height - label_height) / 2.0,
+                ),
+                CGSize::new(label_width, label_height),
             ));
             let text = CFString::from_str(&geometry.label);
             unsafe {

@@ -349,14 +349,24 @@ impl TraditionalLayoutSystem {
 
     /// Number of top-level tab groups and whether `source` shares its group
     /// with another window. Used to size the screen-space drop grid.
+    /// Returns one visible member per top-level group (with a flag for the
+    /// source's own group) and whether the source shares its group.
     pub(crate) fn zone_context_for_window(
         &self,
         layout: LayoutId,
         source: WindowId,
-    ) -> Option<(usize, bool)> {
+    ) -> Option<(Vec<(WindowId, bool)>, bool)> {
         let groups = self.zone_groups(layout);
-        let source_group = groups.iter().find(|group| group.windows.contains(&source))?;
-        Some((groups.len(), source_group.windows.len() > 1))
+        let source_index = groups.iter().position(|group| group.windows.contains(&source))?;
+        let members = groups
+            .iter()
+            .enumerate()
+            .filter_map(|(index, group)| {
+                let member = group.selected.or_else(|| group.windows.first().copied())?;
+                Some((member, index == source_index))
+            })
+            .collect();
+        Some((members, groups[source_index].windows.len() > 1))
     }
 
     fn zone_groups(&self, layout: LayoutId) -> Vec<ZoneGroup> {
@@ -425,9 +435,21 @@ impl TraditionalLayoutSystem {
             }
             groups.insert(source_index.min(groups.len()), source_group);
         }
-        let new_group = ZoneGroup {
-            windows: vec![source],
-            selected: Some(source),
+        let placed_group = if let Some(target) = drop.merge_target {
+            let Some(target_index) =
+                groups.iter().position(|group| group.windows.contains(&target))
+            else {
+                return false;
+            };
+            let mut merged = groups.remove(target_index);
+            merged.windows.push(source);
+            merged.selected = Some(source);
+            merged
+        } else {
+            ZoneGroup {
+                windows: vec![source],
+                selected: Some(source),
+            }
         };
 
         let cell_count: usize = drop
@@ -443,7 +465,7 @@ impl TraditionalLayoutSystem {
             return false;
         }
         let mut assignments: Vec<Option<ZoneGroup>> = vec![None; cell_count];
-        assignments[drop.cell] = Some(new_group);
+        assignments[drop.cell] = Some(placed_group);
         let mut remaining = groups.into_iter();
         for slot in &mut assignments {
             if slot.is_none() {
@@ -3421,6 +3443,59 @@ mod tests {
     }
 
     #[test]
+    fn zone_context_counts_top_level_groups_and_source_tabs() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        let stack = system.tree.mk_node().push_back(root);
+        system.set_layout(stack, LayoutKind::HorizontalStack);
+        system.add_window_under(layout, stack, w(1));
+        system.add_window_under(layout, stack, w(2));
+        system.add_window_under(layout, root, w(3));
+        system.add_window_under(layout, root, w(4));
+
+        assert_eq!(
+            system.zone_context_for_window(layout, w(1)),
+            Some((vec![(w(1), true), (w(3), false), (w(4), false)], true))
+        );
+        assert_eq!(
+            system.zone_context_for_window(layout, w(3)),
+            Some((vec![(w(1), false), (w(3), true), (w(4), false)], false))
+        );
+    }
+
+    #[test]
+    fn zone_drop_merges_source_into_the_target_group() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        let left = system.tree.mk_node().push_back(root);
+        system.set_layout(left, LayoutKind::HorizontalStack);
+        system.add_window_under(layout, left, w(1));
+        system.add_window_under(layout, left, w(2));
+        system.add_window_under(layout, root, w(3));
+        system.add_window_under(layout, root, w(4));
+
+        assert!(system.apply_zone_drop(layout, w(3), ZoneDrop {
+            columns: [Some(ZoneColumn::Full), Some(ZoneColumn::Full), None],
+            cell: 0,
+            merge_target: Some(w(1)),
+        },));
+
+        let children: Vec<_> = system.root(layout).children(system.map()).collect();
+        assert_eq!(children.len(), 2);
+        assert_eq!(system.layout(children[0]), LayoutKind::HorizontalStack);
+        let merged: Vec<_> = children[0]
+            .traverse_preorder(system.map())
+            .filter_map(|node| system.window_at(node))
+            .collect();
+        assert_eq!(merged, vec![w(1), w(2), w(3)]);
+        assert_eq!(system.window_at(children[1]), Some(w(4)));
+    }
+
+    #[test]
     fn zone_drop_rebuilds_columns_and_keeps_remaining_tabs() {
         let mut system = TraditionalLayoutSystem::default();
         let layout = system.create_layout();
@@ -3444,6 +3519,7 @@ mod tests {
                 Some(ZoneColumn::Full),
             ],
             cell: 0,
+            merge_target: None,
         },));
 
         let children: Vec<_> = system.root(layout).children(system.map()).collect();
@@ -3475,6 +3551,7 @@ mod tests {
         assert!(system.apply_zone_drop(layout, w(1), ZoneDrop {
             columns: [Some(ZoneColumn::Full), Some(ZoneColumn::Full), None],
             cell: 0,
+            merge_target: None,
         },));
 
         let children: Vec<_> = system.root(layout).children(system.map()).collect();

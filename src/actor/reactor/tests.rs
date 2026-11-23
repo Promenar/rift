@@ -2008,6 +2008,7 @@ fn native_frame_changes_only_resize_layout_during_user_drag() {
 fn simple_mode_treats_tiled_resize_drag_as_a_move() {
     let (mut reactor, wid, _wsid, _space1, _space2, frame) = reactor_with_window_on_space1();
     reactor.layout_manager.layout_engine.set_simple_mode(true);
+    reactor.drag_manager.actor.set_simple_mode(true);
     let resized = CGRect::new(
         frame.origin,
         CGSize::new(frame.size.width + 80.0, frame.size.height + 40.0),
