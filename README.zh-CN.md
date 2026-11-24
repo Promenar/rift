@@ -41,6 +41,7 @@ simple_mode = true
 - 显示器断开、重连或桌面编号变化时，空间迁移只保留每块显示器的一个工作区；其他工作区的窗口会并入保留的工作区，不会叠加成多个工作区。简单模式覆盖配置中 `mode = "global"` 的共享工作区行为。
 - 关闭简单模式并重启 Rift 可恢复完整功能；简单模式期间合并掉的旧工作区不会自动恢复。
 - **页签组尺寸修正**：页签组缩放后，未选中的成员会重新应用目标 frame，不再保留旧宽度从选中页签后面探出。
+- **页签选中修复**：分区拖拽重建布局、以及从快照恢复后，每个页签组都会重新保证有一个本地选中的页签，标签栏高亮与前台可见窗口保持一致。
 
 ### 屏幕空间拖拽
 
@@ -98,8 +99,8 @@ simple_mode = true
 2026-11-18 首次安装 v0.8.3 中文版，之后多次原位更新；当前为 2026-11-24 的屏幕空间分区拖拽版本：
 
 - 版本目录：`~/Library/Application Support/Rift/Versions/0.8.3-zh-cn-20261118-022151`
-- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+c6787e180c30`
-- 二进制 SHA-256：`1abeb6d1ca2fea5ce23a3eecd7b7bcc1c7025682614a7385c83261b70a16cb49`
+- `/opt/homebrew/bin/rift` 与 `rift-cli` 指向该目录，`rift --version` 输出 `0.8.3+701cd5075438`
+- 二进制 SHA-256：`1cc8aab2a747d5fe35fb37d7c317fa1e2b12342fab954c8c168d3be0b4fcb726`
 - 二进制已用本机 `Apple Development` 证书签名，designated requirement 为「标识符 + 证书」，不绑定 cdhash；用同一身份重新签名并替换后，辅助功能授权可继续沿用。
 - 服务用 `rift service restart` 管理；`rift-cli service` 已提示迁到 `rift`。
 - 用户配置、快捷键、应用规则与 LaunchAgent 未改；持久化布局快照在升级前备份。
@@ -169,11 +170,11 @@ cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli 
 | --- | --- |
 | `cargo +nightly fmt --all --check` | 通过 |
 | `cargo check --locked -j 2` | 通过 |
-| `cargo nextest run --locked -E 'not binary(settings_native)' -j 2` | 939 项通过，0 失败 |
-| zone 专项测试 | 12 项通过：屏幕格几何、2/3/4 组布局、合并目标、传统树重建 |
+| `cargo nextest run --locked -E 'not binary(settings_native)' -j 2` | 941 项通过，0 失败 |
+| zone 专项测试 | 14 项通过：屏幕格几何、2/3/4 组布局、合并目标、传统树重建、页签选中修复 |
 | arm64 release 构建 | `rift` 与 `rift-cli` 生成成功 |
 | 简单模式实拖（2026-11-24） | 网格持续显示；中带全高、上/下半高可稳定触发；中列窗口拖到左列中带会合并为页签组并重排为两组；候选文字居中、24px 粗体淡蓝色 |
-| 安装运行 | `rift --version` 为 `0.8.3+c6787e180c30`；两块显示器各只有一个工作区；辅助功能授权保留 |
+| 安装运行 | `rift --version` 为 `0.8.3+701cd5075438`；两块显示器各只有一个工作区；辅助功能授权保留 |
 
 已知问题：`settings_native --ignored --verify` 在 `search replaces the sidebar` 断言失败，**纯上游 v0.8.3 在同一台机器上同样失败**，与本仓库汉化无关；该断言依赖搜索态下侧栏视图被替换的时序。快捷键与关于页另有独立入口，已单独通过。
 
