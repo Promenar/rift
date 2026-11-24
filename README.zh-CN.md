@@ -173,7 +173,7 @@ cargo build --release --locked -j 2 --package rift-wm --bin rift --bin rift-cli 
 | `cargo nextest run --locked -E 'not binary(settings_native)' -j 2` | 941 项通过，0 失败 |
 | zone 专项测试 | 14 项通过：屏幕格几何、2/3/4 组布局、合并目标、传统树重建、页签选中修复 |
 | arm64 release 构建 | `rift` 与 `rift-cli` 生成成功 |
-| 简单模式实拖（2026-11-24） | 网格持续显示；中带全高、上/下半高可稳定触发；中列窗口拖到左列中带会合并为页签组并重排为两组；候选文字居中、24px 粗体淡蓝色 |
+| 简单模式实拖（2026-11-24） | 网格持续显示；中带全高、上/下半高可稳定触发；中列窗口拖到左列中带会合并为页签组并重排为两组；候选文字居中、24px 粗体淡蓝色；用户现场确认分带候选与页签选中修复 |
 | 安装运行 | `rift --version` 为 `0.8.3+701cd5075438`；两块显示器各只有一个工作区；辅助功能授权保留 |
 
 已知问题：`settings_native --ignored --verify` 在 `search replaces the sidebar` 断言失败，**纯上游 v0.8.3 在同一台机器上同样失败**，与本仓库汉化无关；该断言依赖搜索态下侧栏视图被替换的时序。快捷键与关于页另有独立入口，已单独通过。
