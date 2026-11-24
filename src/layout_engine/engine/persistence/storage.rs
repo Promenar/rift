@@ -119,6 +119,7 @@ impl LayoutEngine {
         self.apply_layout_settings(layout_settings);
         self.app_rules = AppRuleEngine::new(&virtual_workspace_config.app_rules);
         self.workspaces.apply_settings(virtual_workspace_config, layout_settings, plan);
+        self.repair_stack_selections();
         Ok(())
     }
 }

@@ -276,6 +276,19 @@ impl LayoutEngine {
         system.apply_window_drop(layout, request.source, request.target, request.action)
     }
 
+    /// Restore a local tab selection in every stack after loading a snapshot.
+    pub(crate) fn repair_stack_selections(&mut self) {
+        for (_, workspace) in self.workspaces.workspaces.iter_mut() {
+            let layouts: Vec<_> = workspace.layout_state.all_layouts().collect();
+            let LayoutSystemKind::Traditional(system) = &mut workspace.layout_system else {
+                continue;
+            };
+            for layout in layouts {
+                system.repair_stack_selections(layout);
+            }
+        }
+    }
+
     /// One visible member per top-level group (with the source group flagged)
     /// and whether `source` shares its group, used by simple mode to size the
     /// screen-space drop grid and detect merges.

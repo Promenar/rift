@@ -490,13 +490,16 @@ impl TraditionalLayoutSystem {
         root_info.is_fullscreen = false;
         root_info.is_fullscreen_within_gaps = false;
 
+        let mut stack_selections = Vec::new();
         let mut cell = 0;
         for column in drop.columns {
             match column {
                 None => {}
                 Some(ZoneColumn::Full) => {
                     let group = assignments[cell].take().expect("assigned zone cell");
-                    self.build_zone_group(layout, root, group);
+                    if let Some(selected) = self.build_zone_group(layout, root, group) {
+                        stack_selections.push(selected);
+                    }
                     cell += 1;
                 }
                 Some(ZoneColumn::Split) => {
@@ -504,33 +507,66 @@ impl TraditionalLayoutSystem {
                     self.set_layout(container, LayoutKind::Vertical);
                     for _ in 0..2 {
                         let group = assignments[cell].take().expect("assigned zone cell");
-                        self.build_zone_group(layout, container, group);
+                        if let Some(selected) = self.build_zone_group(layout, container, group) {
+                            stack_selections.push(selected);
+                        }
                         cell += 1;
                     }
                 }
             }
         }
         debug_assert_eq!(cell, cell_count);
+        // Every stack must keep exactly one locally selected tab. Selecting the
+        // source last sets the root path; earlier stacks keep their local
+        // selection instead of being left without an active tab.
+        for selected in stack_selections {
+            if let Some(node) = self.window_node(layout, selected) {
+                self.select(node);
+            }
+        }
         if let Some(node) = self.window_node(layout, source) {
             self.select(node);
         }
         true
     }
 
-    fn build_zone_group(&mut self, layout: LayoutId, parent: NodeId, group: ZoneGroup) {
+    fn build_zone_group(
+        &mut self,
+        layout: LayoutId,
+        parent: NodeId,
+        group: ZoneGroup,
+    ) -> Option<WindowId> {
         if let [window] = group.windows.as_slice() {
             let node = self.tree.mk_node().push_back(parent);
             self.tree.data.window.set_window(layout, node, *window);
-            return;
+            return None;
         }
+        let selected = group.selected.or_else(|| group.windows.first().copied())?;
         let stack = self.tree.mk_node().push_back(parent);
         self.set_layout(stack, LayoutKind::HorizontalStack);
         for window in group.windows {
             let node = self.tree.mk_node().push_back(stack);
             self.tree.data.window.set_window(layout, node, window);
         }
-        if let Some(node) = group.selected.and_then(|window| self.window_node(layout, window)) {
-            self.select(node);
+        Some(selected)
+    }
+
+    /// Snapshots can carry a stack without a locally selected tab (for
+    /// example after an interrupted drop). Give every stack its first tab so
+    /// the tab bar and the visible window agree again.
+    pub(crate) fn repair_stack_selections(&mut self, layout: LayoutId) {
+        let root = self.root(layout);
+        let stacks: Vec<_> = root
+            .traverse_preorder(self.map())
+            .filter(|node| self.layout(*node).is_stacked())
+            .collect();
+        for stack in stacks {
+            if self.local_selection(stack).is_some() {
+                continue;
+            }
+            if let Some(first) = stack.first_child(self.map()) {
+                self.tree.data.selection.select_locally(&self.tree.map, first);
+            }
         }
     }
 
@@ -3493,6 +3529,60 @@ mod tests {
             .collect();
         assert_eq!(merged, vec![w(1), w(2), w(3)]);
         assert_eq!(system.window_at(children[1]), Some(w(4)));
+    }
+
+    #[test]
+    fn repair_stack_selections_restores_a_tab() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        let stack = system.tree.mk_node().push_back(root);
+        system.set_layout(stack, LayoutKind::HorizontalStack);
+        system.add_window_under(layout, stack, w(1));
+        system.add_window_under(layout, stack, w(2));
+        assert!(system.local_selection(stack).is_none());
+
+        system.repair_stack_selections(layout);
+
+        assert_eq!(
+            system.local_selection(stack).and_then(|node| system.window_at(node)),
+            Some(w(1))
+        );
+    }
+
+    #[test]
+    fn zone_drop_keeps_one_selected_tab_in_every_stack() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        let left = system.tree.mk_node().push_back(root);
+        system.set_layout(left, LayoutKind::HorizontalStack);
+        system.add_window_under(layout, left, w(1));
+        system.add_window_under(layout, left, w(2));
+        system.select_window(layout, w(1));
+        system.add_window_under(layout, root, w(3));
+        let right = system.tree.mk_node().push_back(root);
+        system.set_layout(right, LayoutKind::HorizontalStack);
+        system.add_window_under(layout, right, w(4));
+        system.add_window_under(layout, right, w(5));
+        system.select_window(layout, w(4));
+
+        assert!(system.apply_zone_drop(layout, w(3), ZoneDrop {
+            columns: [Some(ZoneColumn::Full), Some(ZoneColumn::Full), None],
+            cell: 0,
+            merge_target: Some(w(1)),
+        },));
+
+        let children: Vec<_> = system.root(layout).children(system.map()).collect();
+        assert_eq!(children.len(), 2);
+        let left_selected =
+            system.local_selection(children[0]).and_then(|node| system.window_at(node));
+        let right_selected =
+            system.local_selection(children[1]).and_then(|node| system.window_at(node));
+        assert_eq!(left_selected, Some(w(3)));
+        assert_eq!(right_selected, Some(w(4)));
     }
 
     #[test]
