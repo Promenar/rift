@@ -217,7 +217,16 @@ impl Session {
                 return None;
             }
             let (col, kind) = if target == 2 {
-                (if x < 0.5 { 0 } else { 1 }, ZoneKind::Full)
+                // Two groups: the middle band keeps the familiar side-by-side
+                // columns; the top and bottom bands stack the dragged group
+                // above or below the remaining group.
+                if y < 0.30 {
+                    (0, ZoneKind::Top)
+                } else if y > 0.70 {
+                    (0, ZoneKind::Bottom)
+                } else {
+                    (if x < 0.5 { 0 } else { 1 }, ZoneKind::Full)
+                }
             } else {
                 let col = ((x * 3.0).floor() as usize).min(2);
                 let kind = if y < 0.30 {
@@ -755,7 +764,12 @@ fn contains(rect: CGRect, point: CGPoint, margin: f64) -> bool {
 /// compact layout with fewer columns.
 fn zone_columns(target: usize, col: usize, kind: ZoneKind) -> Option<[Option<ZoneColumn>; 3]> {
     if target == 2 {
-        return Some([Some(ZoneColumn::Full), Some(ZoneColumn::Full), None]);
+        // Two groups: the middle band keeps two full-height columns; the
+        // top/bottom bands stack the two groups into full-width halves.
+        return Some(match kind {
+            ZoneKind::Full => [Some(ZoneColumn::Full), Some(ZoneColumn::Full), None],
+            ZoneKind::Top | ZoneKind::Bottom => [Some(ZoneColumn::Split), None, None],
+        });
     }
     if !(3..=6).contains(&target) {
         return None;
@@ -1661,6 +1675,147 @@ mod tests {
         assert_eq!(rect.origin.x, 500.0);
         assert_eq!(rect.size.width, 500.0);
         assert_eq!(rect.size.height, 500.0);
+    }
+
+    #[test]
+    fn zone_grid_two_groups_stacks_on_the_top_and_bottom_bands() {
+        let top = zone_columns(2, 0, ZoneKind::Top).unwrap();
+        assert_eq!(top, [Some(ZoneColumn::Split), None, None]);
+        let top_cell = zone_cell_index(&top, 0, ZoneKind::Top).unwrap();
+        let top_rect = zone_cell_rect(frame(0.0, 0.0, 1000.0, 500.0), &top, top_cell).unwrap();
+        assert_eq!(top_rect.origin.y, 0.0);
+        assert_eq!(top_rect.size.width, 1000.0);
+        assert_eq!(top_rect.size.height, 250.0);
+
+        let bottom = zone_columns(2, 0, ZoneKind::Bottom).unwrap();
+        assert_eq!(bottom, [Some(ZoneColumn::Split), None, None]);
+        let bottom_cell = zone_cell_index(&bottom, 0, ZoneKind::Bottom).unwrap();
+        let bottom_rect =
+            zone_cell_rect(frame(0.0, 0.0, 1000.0, 500.0), &bottom, bottom_cell).unwrap();
+        assert_eq!(bottom_rect.origin.y, 250.0);
+        assert_eq!(bottom_rect.size.width, 1000.0);
+        assert_eq!(bottom_rect.size.height, 250.0);
+    }
+
+    #[test]
+    fn zone_grid_two_groups_uses_screen_bands() {
+        let screen = frame(0.0, 0.0, 900.0, 600.0);
+        let mut actor = DragActor::new(DragDropSettings::default());
+        actor.begin_modifier(
+            source(true),
+            point(10.0, 10.0),
+            MouseAction::Move,
+            DragScene::default(),
+        );
+        actor.set_zone_context(Some(ZoneContext {
+            screen,
+            groups: [
+                Some(ZoneGroupScreen {
+                    member: w(1),
+                    frame: frame(0.0, 0.0, 450.0, 600.0),
+                    is_source_group: true,
+                }),
+                Some(ZoneGroupScreen {
+                    member: w(2),
+                    frame: frame(450.0, 0.0, 450.0, 600.0),
+                    is_source_group: false,
+                }),
+                None,
+                None,
+                None,
+                None,
+            ],
+            source_has_others: false,
+            space: space(),
+        }));
+
+        // Top band: the dragged group goes above the other group.
+        assert!(motion_split(&mut actor, 450.0, 60.0, false));
+        let intent = actor.intent().unwrap();
+        let WindowDropAction::Zone(drop) = intent.action else {
+            panic!("expected a zone drop");
+        };
+        assert_eq!(drop.columns, [Some(ZoneColumn::Split), None, None]);
+        assert_eq!(drop.cell, 0);
+        assert_eq!(intent.frame.origin.y, 0.0);
+        assert_eq!(intent.frame.size.width, 900.0);
+        assert_eq!(intent.frame.size.height, 300.0);
+
+        // Bottom band: the dragged group goes below the other group.
+        assert!(motion_split(&mut actor, 450.0, 540.0, false));
+        let intent = actor.intent().unwrap();
+        let WindowDropAction::Zone(drop) = intent.action else {
+            panic!("expected a zone drop");
+        };
+        assert_eq!(drop.columns, [Some(ZoneColumn::Split), None, None]);
+        assert_eq!(drop.cell, 1);
+        assert_eq!(intent.frame.origin.y, 300.0);
+        assert_eq!(intent.frame.size.width, 900.0);
+        assert_eq!(intent.frame.size.height, 300.0);
+
+        // Middle band over the source column: back to side-by-side columns.
+        assert!(motion_split(&mut actor, 100.0, 300.0, false));
+        let intent = actor.intent().unwrap();
+        let WindowDropAction::Zone(drop) = intent.action else {
+            panic!("expected a zone drop");
+        };
+        assert_eq!(drop.columns, [
+            Some(ZoneColumn::Full),
+            Some(ZoneColumn::Full),
+            None
+        ]);
+        assert_eq!(drop.cell, 0);
+        assert_eq!(intent.frame.origin.x, 0.0);
+        assert_eq!(intent.frame.size.width, 450.0);
+        assert_eq!(intent.frame.size.height, 600.0);
+    }
+
+    #[test]
+    fn zone_grid_two_groups_switches_back_from_stack_to_columns() {
+        let screen = frame(0.0, 0.0, 900.0, 600.0);
+        let mut actor = DragActor::new(DragDropSettings::default());
+        actor.begin_modifier(
+            source(true),
+            point(10.0, 10.0),
+            MouseAction::Move,
+            DragScene::default(),
+        );
+        actor.set_zone_context(Some(ZoneContext {
+            screen,
+            groups: [
+                Some(ZoneGroupScreen {
+                    member: w(1),
+                    frame: frame(0.0, 0.0, 900.0, 300.0),
+                    is_source_group: true,
+                }),
+                Some(ZoneGroupScreen {
+                    member: w(2),
+                    frame: frame(0.0, 300.0, 900.0, 300.0),
+                    is_source_group: false,
+                }),
+                None,
+                None,
+                None,
+                None,
+            ],
+            source_has_others: false,
+            space: space(),
+        }));
+
+        assert!(motion_split(&mut actor, 100.0, 300.0, false));
+        let intent = actor.intent().unwrap();
+        let WindowDropAction::Zone(drop) = intent.action else {
+            panic!("expected a zone drop");
+        };
+        assert_eq!(drop.columns, [
+            Some(ZoneColumn::Full),
+            Some(ZoneColumn::Full),
+            None
+        ]);
+        assert_eq!(drop.cell, 0);
+        assert_eq!(intent.frame.origin.x, 0.0);
+        assert_eq!(intent.frame.size.width, 450.0);
+        assert_eq!(intent.frame.size.height, 600.0);
     }
 
     #[test]

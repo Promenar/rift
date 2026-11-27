@@ -3651,6 +3651,56 @@ mod tests {
     }
 
     #[test]
+    fn zone_drop_stacks_two_groups_into_full_width_rows() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        system.add_window_under(layout, root, w(1));
+        system.add_window_under(layout, root, w(2));
+
+        assert!(system.apply_zone_drop(layout, w(1), ZoneDrop {
+            columns: [Some(ZoneColumn::Split), None, None],
+            cell: 0,
+            merge_target: None,
+        },));
+
+        let children: Vec<_> = system.root(layout).children(system.map()).collect();
+        assert_eq!(children.len(), 1);
+        assert_eq!(system.layout(children[0]), LayoutKind::Vertical);
+        let rows: Vec<_> = children[0].children(system.map()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(system.window_at(rows[0]), Some(w(1)));
+        assert_eq!(system.window_at(rows[1]), Some(w(2)));
+        assert_eq!(system.selected_window(layout), Some(w(1)));
+    }
+
+    #[test]
+    fn zone_drop_stacks_the_source_below_the_other_group() {
+        let mut system = TraditionalLayoutSystem::default();
+        let layout = system.create_layout();
+        let root = system.root(layout);
+        system.set_layout(root, LayoutKind::Horizontal);
+        system.add_window_under(layout, root, w(1));
+        system.add_window_under(layout, root, w(2));
+
+        assert!(system.apply_zone_drop(layout, w(1), ZoneDrop {
+            columns: [Some(ZoneColumn::Split), None, None],
+            cell: 1,
+            merge_target: None,
+        },));
+
+        let children: Vec<_> = system.root(layout).children(system.map()).collect();
+        assert_eq!(children.len(), 1);
+        assert_eq!(system.layout(children[0]), LayoutKind::Vertical);
+        let rows: Vec<_> = children[0].children(system.map()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(system.window_at(rows[0]), Some(w(2)));
+        assert_eq!(system.window_at(rows[1]), Some(w(1)));
+        assert_eq!(system.selected_window(layout), Some(w(1)));
+    }
+
+    #[test]
     fn swap_windows_keeps_focus_on_the_moved_window() {
         let mut system = TraditionalLayoutSystem::default();
         let layout = system.create_layout();
